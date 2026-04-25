@@ -1,0 +1,75 @@
+services:
+  ollama:
+    image: ollama/ollama:0.9.0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-1}
+      - OLLAMA_NUM_GPU=${OLLAMA_NUM_GPU:-999}
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      # Bind to loopback only — Ollama has no auth; not safe to expose on all interfaces
+      - "127.0.0.1:11434:11434"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.3.3
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ES_PASSWORD:-changeme}
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -su ${ES_USERNAME:-elastic}:${ES_PASSWORD:-changeme} http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 30s
+
+  rag-server:
+    build:
+      context: .
+      dockerfile: src/RagServer/Dockerfile
+    ports:
+      # Bind to loopback only — rag-server exposes no auth bypass; not safe to expose on all interfaces
+      - "127.0.0.1:${RAG_HOST_PORT:-8080}:8080"
+    env_file:
+      - .env
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_URLS=http://+:8080
+      - ASPNETCORE_ENVIRONMENT=Production
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire-dashboard:18889
+      - OTEL_SERVICE_NAME=rag-server
+
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.2
+    ports:
+      # Bind to loopback — telemetry data contains business query text; not for external exposure
+      - "127.0.0.1:${ASPIRE_DASHBOARD_UI_PORT:-18888}:18888"
+      - "127.0.0.1:${ASPIRE_DASHBOARD_OTLP_GRPC_PORT:-4317}:18889"
+    environment:
+      - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=${ASPIRE_DASHBOARD_UNSECURED:-true}
+
+volumes:
+  ollama_data:
+  es_data:

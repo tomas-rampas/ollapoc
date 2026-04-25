@@ -1,0 +1,7 @@
+services:
+  rag-server:
+    environment:
+      - SKIP_AUTH=true
+      - ASPNETCORE_ENVIRONMENT=Development
+    volumes:
+      - ./src:/app/src

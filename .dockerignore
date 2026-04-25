@@ -1,0 +1,9 @@
+**/.git
+**/.env
+**/obj
+**/bin
+**/node_modules
+**/*.user
+**/*.suo
+.vs/
+docker-compose.override.yml

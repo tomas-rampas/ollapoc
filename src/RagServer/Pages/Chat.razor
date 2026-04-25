@@ -1,0 +1,167 @@
+@page "/"
+@page "/chat"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.Options
+@using RagServer.Options
+@implements IAsyncDisposable
+@inject IHttpClientFactory HttpFactory
+@inject NavigationManager Nav
+@inject IOptions<OllamaOptions> OllamaOpts
+
+<div class="chat-wrapper">
+    <div class="chat-main">
+        <div class="messages" id="messages">
+            @foreach (var m in _messages)
+            {
+                <div class="msg @m.Role">
+                    <span class="role-label">@m.Role</span>
+                    <span class="text">@m.Text</span>
+                </div>
+            }
+            @if (_busy)
+            {
+                <div class="msg assistant thinking">
+                    <span class="role-label">assistant</span>
+                    <span class="text">…</span>
+                </div>
+            }
+        </div>
+        <div class="input-bar">
+            <input @bind="_input"
+                   @bind:event="oninput"
+                   @onkeydown="OnKeyAsync"
+                   placeholder="Ask anything…"
+                   disabled="@_busy" />
+            <button @onclick="SendAsync" disabled="@_busy">Send</button>
+        </div>
+    </div>
+
+    <aside class="stats-panel">
+        <h3>Demo Stats</h3>
+        <dl>
+            <dt>Pipeline</dt>
+            <dd>@_lastPipeline</dd>
+            <dt>Model</dt>
+            <dd>@_modelBadge</dd>
+            <dt>Latency</dt>
+            <dd>@(_lastLatencyMs > 0 ? $"{_lastLatencyMs} ms" : "—")</dd>
+        </dl>
+    </aside>
+</div>
+
+@code {
+    private string _input = "";
+    private bool _busy;
+    private string _lastPipeline = "—";
+    private string _modelBadge = "";
+    private long _lastLatencyMs;
+    private readonly List<(string Role, string Text)> _messages = [];
+
+    // Component-level CTS cancelled when the circuit disposes (user closes tab)
+    private readonly CancellationTokenSource _disposeCts = new();
+
+    protected override void OnInitialized() =>
+        _modelBadge = OllamaOpts.Value.ChatModel;
+
+    private async Task OnKeyAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SendAsync();
+    }
+
+    private async Task SendAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_input) || _busy) return;
+
+        _busy = true;
+        var userMsg = _input;
+        _input = "";
+        _messages.Add(("user", userMsg));
+        await InvokeAsync(StateHasChanged);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var sb = new System.Text.StringBuilder();
+        _messages.Add(("assistant", ""));
+        var idx = _messages.Count - 1;
+
+        // Per-send CTS with 120-second hard timeout, cancelled on circuit dispose
+        using var sendCts = CancellationTokenSource.CreateLinkedTokenSource(_disposeCts.Token);
+        sendCts.CancelAfter(TimeSpan.FromSeconds(120));
+
+        try
+        {
+            using var http = HttpFactory.CreateClient("rag");
+            // BaseAddress from NavigationManager so it works on any port/host
+            http.BaseAddress = new Uri(Nav.BaseUri);
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/chat")
+            {
+                Content = JsonContent.Create(new { message = userMsg })
+            };
+            using var resp = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead,
+                sendCts.Token);
+            resp.EnsureSuccessStatusCode();
+
+            using var stream = await resp.Content.ReadAsStreamAsync(sendCts.Token);
+            using var reader = new System.IO.StreamReader(stream);
+
+            // Read until EOF — avoid reader.EndOfStream (blocks on streaming HTTP responses)
+            // eventHasData tracks whether the current SSE event has already received a data: line.
+            // Per SSE spec, consecutive data: lines within one event are joined with \n.
+            string? line;
+            bool eventHasData = false;
+            while ((line = await reader.ReadLineAsync(sendCts.Token)) is not null)
+            {
+                if (line.Length == 0)
+                {
+                    // Empty line = SSE event boundary; reset for the next event
+                    eventHasData = false;
+                    continue;
+                }
+
+                if (line.StartsWith("event: pipeline", StringComparison.Ordinal))
+                {
+                    var dataLine = await reader.ReadLineAsync(sendCts.Token);
+                    if (dataLine?.StartsWith("data: ", StringComparison.Ordinal) == true)
+                        _lastPipeline = dataLine["data: ".Length..];
+                    eventHasData = false;
+                }
+                else if (line.StartsWith("data: ", StringComparison.Ordinal))
+                {
+                    var token = line["data: ".Length..];
+                    if (token == "[DONE]") break;
+                    if (token.StartsWith("[ERROR]", StringComparison.Ordinal)) break;
+                    // SSE spec: consecutive data: lines within the same event join with \n
+                    if (eventHasData) sb.Append('\n');
+                    sb.Append(token);
+                    eventHasData = true;
+                    _messages[idx] = ("assistant", sb.ToString());
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (_messages[idx].Text.Length == 0)
+                _messages[idx] = ("assistant", "[Request timed out or cancelled]");
+        }
+        catch (Exception ex)
+        {
+            _messages[idx] = ("assistant", $"[Error: {ex.Message}]");
+        }
+        finally
+        {
+            sw.Stop();
+            _lastLatencyMs = sw.ElapsedMilliseconds;
+            _busy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _disposeCts.Cancel();
+        _disposeCts.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}
