@@ -16,6 +16,13 @@ project.lock.json
 
 # Rider / JetBrains
 .idea/
+*.iml
+*.ipr
+*.iws
+_ReSharper*/
+*.ReSharper
+*.DotSettings
+resharper_cache/
 
 # VS Code
 .vscode/
