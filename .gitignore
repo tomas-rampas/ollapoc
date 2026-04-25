@@ -1,0 +1,33 @@
+# Environment — never commit real secrets
+.env
+
+# .NET build output
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.DotSettings.user
+
+# NuGet
+*.nupkg
+packages/
+project.lock.json
+
+# Rider / JetBrains
+.idea/
+
+# VS Code
+.vscode/
+
+# Docker volumes (if bind-mounted locally)
+ollama_data/
+es_data/
+
+# Test results
+TestResults/
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
