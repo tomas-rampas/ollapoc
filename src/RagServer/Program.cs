@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using OllamaSharp;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using RagServer.Compiler;
 using RagServer.Endpoints;
 using RagServer.Infrastructure;
 using RagServer.Infrastructure.Catalog;
@@ -68,6 +69,8 @@ builder.Services.Configure<RagOptions>(o =>
     if (int.TryParse(builder.Configuration["RAG_CHAT_MAX_OUTPUT_TOKENS"],  out var mot))   o.MaxOutputTokens  = mot;
     if (int.TryParse(builder.Configuration["RAG_METADATA_MAX_TURNS"],      out var mmt))   o.MetadataMaxTurns  = Math.Clamp(mmt, 1, 20);
     if (int.TryParse(builder.Configuration["RAG_CATALOG_TERMS_TOP_K"],     out var cttk))  o.CatalogTermsTopK  = cttk;
+    if (int.TryParse(builder.Configuration["RAG_DATA_MAX_RETRIES"],        out var dmr))   o.DataMaxRetries    = dmr;
+    if (int.TryParse(builder.Configuration["RAG_DATA_IR_MAX_TOKENS"],      out var dit))   o.DataIrMaxTokens   = dit;
 });
 
 builder.Services.Configure<SqlServerOptions>(o =>
@@ -176,6 +179,13 @@ else
 // MetadataPipeline is Scoped for the same reason.
 builder.Services.AddScoped<CatalogTools>();
 builder.Services.AddScoped<MetadataPipeline>();
+
+// ── Data pipeline (UC-3) ─────────────────────────────────────────────────────────────────
+// QuerySpecValidator and IrToDslCompiler are pure/stateless — Singleton.
+// DataPipeline captures CatalogDbContext (Scoped) — must be Scoped.
+builder.Services.AddSingleton<QuerySpecValidator>();
+builder.Services.AddSingleton<IrToDslCompiler>();
+builder.Services.AddScoped<DataPipeline>();
 
 // ── LLM Request Queue ─────────────────────────────────────────────────────────
 builder.Services.AddSingleton<LlmRequestQueue>();

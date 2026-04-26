@@ -2,6 +2,7 @@ using Elastic.Clients.Elasticsearch;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using RagServer.Infrastructure.Catalog;
 using RagServer.Options;
@@ -51,7 +52,8 @@ public class MetadataPipelineTests
             mockEmbeddings.Object,
             esClient,
             new NullMongoExtensionRepository(),
-            Create(new RagOptions()));
+            Create(new RagOptions()),
+            NullLogger<CatalogTools>.Instance);
     }
 
     /// <summary>
@@ -96,7 +98,8 @@ public class MetadataPipelineTests
         var pipeline = new MetadataPipeline(
             BuildCatalogTools(),
             chatMock.Object,
-            Create(ragOpts ?? new RagOptions()));
+            Create(ragOpts ?? new RagOptions()),
+            NullLogger<MetadataPipeline>.Instance);
 
         return (pipeline, chatMock);
     }
@@ -201,7 +204,8 @@ public class MetadataPipelineTests
         var pipeline = new MetadataPipeline(
             BuildCatalogTools(),
             chatMock.Object,
-            Create(new RagOptions { MetadataMaxTurns = 1 }));
+            Create(new RagOptions { MetadataMaxTurns = 1 }),
+            NullLogger<MetadataPipeline>.Instance);
 
         var (response, body) = BuildResponse();
 
@@ -241,7 +245,8 @@ public class MetadataPipelineTests
         var pipeline = new MetadataPipeline(
             BuildCatalogTools(),
             chatMock.Object,
-            Create(new RagOptions()));
+            Create(new RagOptions()),
+            NullLogger<MetadataPipeline>.Instance);
 
         var (response, body) = BuildResponse();
         await pipeline.ExecuteAsync("any query", response, CancellationToken.None);
@@ -275,7 +280,8 @@ public class MetadataPipelineTests
         var pipeline = new MetadataPipeline(
             BuildCatalogTools(),
             chatMock.Object,
-            Create(new RagOptions()));
+            Create(new RagOptions()),
+            NullLogger<MetadataPipeline>.Instance);
 
         var (response, body) = BuildResponse();
         await pipeline.ExecuteAsync(testQuery, response, CancellationToken.None);

@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Version** | 0.6 |
-| **Status** | In progress — Sprint 2 complete |
+| **Version** | 0.7 |
+| **Status** | In progress — Sprint 3 complete |
 | **Scope** | Proof of Concept |
 | **Date** | April 2026 |
-| **Changes from 0.5** | Sprint 2 (UC-2 Metadata Pipeline) implemented: 5 catalog tools (`ResolveEntity`, `GetEntityAttributes`, `GetEntityExtensions`, `ListCDE`, `GetEntityRelationships`), M.E.AI function-calling loop, MongoDB graceful degradation, `catalog_terms` ES index bootstrap, 120 tests green |
+| **Changes from 0.6** | Sprint 3 (UC-3 Data Pipeline) implemented: `QuerySpec` IR, `QuerySpecValidator`, `IrToDslCompiler` (NL → ES DSL), `DataPipeline` (validate/retry loop, SSE streaming), index-name injection guard, 148 tests green |
 
 ---
 

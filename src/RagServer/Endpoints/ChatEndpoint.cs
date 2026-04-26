@@ -1,8 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Options;
 using RagServer.Infrastructure;
-using RagServer.Options;
 using RagServer.Pipelines;
 using RagServer.Router;
 using RagServer.Telemetry;
@@ -16,12 +13,11 @@ public static class ChatEndpoint
     public static async Task Handle(
         HttpContext ctx,
         [FromBody] ChatRequest req,
-        [FromKeyedServices("chat")] IChatClient chatClient,
         IntentRouter router,
         LlmRequestQueue queue,
         DocsPipeline docsPipeline,
         MetadataPipeline metadataPipeline,
-        IOptions<RagOptions> ragOpts)
+        DataPipeline dataPipeline)
     {
         // Validate input before committing to any response
         if (string.IsNullOrEmpty(req.Message))
@@ -67,18 +63,7 @@ public static class ChatEndpoint
                 }
                 else
                 {
-                    // UC-3 Data pipeline placeholder — raw LLM stream
-                    var opts = new ChatOptions { MaxOutputTokens = ragOpts.Value.MaxOutputTokens };
-                    await foreach (var update in chatClient.GetStreamingResponseAsync(req.Message, opts, ct))
-                    {
-                        if (update.Text is not null)
-                        {
-                            // Escape embedded newlines so they don't break the SSE frame boundary
-                            var safeText = EscapeSse(update.Text);
-                            await ctx.Response.WriteAsync($"data: {safeText}\n\n", ct);
-                            await ctx.Response.Body.FlushAsync(ct);
-                        }
-                    }
+                    await dataPipeline.ExecuteAsync(req.Message, ctx.Response, ct);
                 }
                 await ctx.Response.WriteAsync("data: [DONE]\n\n", ct);
                 await ctx.Response.Body.FlushAsync(ct);

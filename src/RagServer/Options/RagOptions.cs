@@ -9,4 +9,6 @@ public sealed class RagOptions
     public int RrfRankConstant { get; set; } = 60;
     public int MetadataMaxTurns { get; set; } = 10;
     public int CatalogTermsTopK { get; set; } = 3;
+    public int DataMaxRetries { get; set; } = 1;
+    public int DataIrMaxTokens { get; set; } = 500;
 }

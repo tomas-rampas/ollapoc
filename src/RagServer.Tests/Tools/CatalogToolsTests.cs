@@ -1,6 +1,7 @@
 using Elastic.Clients.Elasticsearch;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using RagServer.Infrastructure.Catalog;
 using RagServer.Options;
@@ -45,7 +46,8 @@ public class CatalogToolsTests
         var es = new ElasticsearchClient(new ElasticsearchClientSettings(new Uri("http://localhost:19999")));
         var mongoRepo = mongo ?? new NullMongoExtensionRepository();
         var opts = Create(new RagOptions());
-        return new CatalogTools(db, embMock.Object, es, mongoRepo, opts);
+        return new CatalogTools(db, embMock.Object, es, mongoRepo, opts,
+            NullLogger<CatalogTools>.Instance);
     }
 
     // ── ResolveEntityAsync ────────────────────────────────────────────────────
