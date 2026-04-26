@@ -98,6 +98,16 @@ builder.Services.Configure<AbTestOptions>(o =>
     o.Enabled = abTestEnabled;
 });
 
+builder.Services.Configure<DemoOptions>(o =>
+{
+    if (bool.TryParse(builder.Configuration["DEMO_MODE"],          out var dm))  o.DemoMode         = dm;
+    if (bool.TryParse(builder.Configuration["DEMO_STATS_ENABLED"], out var dse)) o.DemoStatsEnabled = dse;
+    if (bool.TryParse(builder.Configuration["DEMO_DEBUG_PANEL"],   out var ddp)) o.DemoDebugPanel   = ddp;
+    var preWarmed = builder.Configuration["DEMO_PRE_WARMED_QUERIES"];
+    if (!string.IsNullOrWhiteSpace(preWarmed))
+        o.DemoPreWarmedQueries = preWarmed.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+});
+
 // ── Ollama AI Clients (keyed by role) ─────────────────────────────────────────
 // OllamaApiClient implements IChatClient and IEmbeddingGenerator<string, Embedding<float>> directly.
 // Resolved via IOptions to keep a single source of truth for connection strings.
@@ -208,6 +218,9 @@ builder.Services.AddSingleton<QuerySpecValidator>();
 builder.Services.AddSingleton<IrToDslCompiler>();
 builder.Services.AddScoped<DataPipeline>();
 
+// ── Demo queries ──────────────────────────────────────────────────────────────
+builder.Services.AddSingleton<DemoQueriesService>();
+
 // ── LLM Request Queue ─────────────────────────────────────────────────────────
 builder.Services.AddSingleton<LlmRequestQueue>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<LlmRequestQueue>());
@@ -264,7 +277,7 @@ app.MapHealthEndpoints();
 var chatRoute = app.MapPost("/api/chat", ChatEndpoint.Handle);
 if (!skipAuth) chatRoute.RequireAuthorization();
 
-app.MapAdminEndpoints();
+app.MapAdminEndpoints(skipAuth);
 
 app.MapRazorComponents<RagServer.Components.App>()
     .AddInteractiveServerRenderMode();

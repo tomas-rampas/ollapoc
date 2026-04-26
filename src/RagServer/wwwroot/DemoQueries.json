@@ -1,0 +1,11 @@
+[
+  { "text": "What is the settlement fail reason for STP trades?",           "pipeline": "Docs" },
+  { "text": "How does the reconciliation process work?",                     "pipeline": "Docs" },
+  { "text": "What counterparty data is required for trade booking?",         "pipeline": "Docs" },
+  { "text": "What attributes does the Trade entity have?",                   "pipeline": "Metadata" },
+  { "text": "Show me all critical data elements for Settlement",             "pipeline": "Metadata" },
+  { "text": "What relationships does Counterparty have?",                    "pipeline": "Metadata" },
+  { "text": "Show me the top 10 trades with status FAILED sorted by amount descending", "pipeline": "Data" },
+  { "text": "How many trades were settled last month?",                      "pipeline": "Data" },
+  { "text": "List all counterparties with more than 5 active trades",        "pipeline": "Data" }
+]

@@ -8,6 +8,7 @@
 @inject IHttpClientFactory HttpFactory
 @inject NavigationManager Nav
 @inject IOptions<OllamaOptions> OllamaOpts
+@inject IOptions<DemoOptions> DemoOpts
 
 <div class="chat-wrapper">
     <div class="chat-main">
@@ -16,14 +17,38 @@
             {
                 <div class="msg @m.Role">
                     <span class="role-label">@m.Role</span>
-                    <span class="text">@m.Text</span>
+                    @if (m.Role == "assistant" && m.Pipeline is not null)
+                    {
+                        <span class="pipeline-badge badge-@m.Pipeline.ToLower()">@m.Pipeline</span>
+                    }
+                    <span class="text @(m.IsError ? "error-text" : "")">@m.Text</span>
+                    @if (DemoOpts.Value.DemoDebugPanel && m.Citations?.Count > 0)
+                    {
+                        <div class="citations">
+                            @foreach (var c in m.Citations)
+                            {
+                                <span>[@c.Index]</span>
+                                @if (!string.IsNullOrEmpty(c.Url) &&
+                                     (c.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                                      c.Url.StartsWith("http://",  StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    <a href="@c.Url" target="_blank" rel="noopener noreferrer">@(c.Title ?? c.Url)</a>
+                                }
+                                else
+                                {
+                                    <span>@c.Title</span>
+                                }
+                                <span> </span>
+                            }
+                        </div>
+                    }
                 </div>
             }
             @if (_busy)
             {
                 <div class="msg assistant thinking">
                     <span class="role-label">assistant</span>
-                    <span class="text">…</span>
+                    <span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span>
                 </div>
             }
         </div>
@@ -37,39 +62,51 @@
         </div>
     </div>
 
-    <aside class="stats-panel">
-        <h3>Demo Stats</h3>
-        <dl>
-            <dt>Pipeline</dt>
-            <dd>@_lastPipeline</dd>
-            <dt>Model</dt>
-            <dd>@_statsModelName</dd>
-            <dt>Latency</dt>
-            <dd>@(_lastLatencyMs > 0 ? $"{_lastLatencyMs} ms" : "—")</dd>
-            <dt>Tokens</dt>
-            <dd>@(_lastTokensGenerated.HasValue ? _lastTokensGenerated.Value.ToString() : "—")</dd>
-            <dt>Tokens/s</dt>
-            <dd>@(_lastTokensPerSecond.HasValue ? $"{_lastTokensPerSecond.Value:F1}" : "—")</dd>
-            @if (_lastToolCallCount.HasValue)
-            {
-                <dt>Tool Calls</dt>
-                <dd>@_lastToolCallCount.Value</dd>
-            }
-            @if (_lastIrFirstTry.HasValue)
-            {
-                <dt>IR First Try</dt>
-                <dd>@(_lastIrFirstTry.Value ? "yes" : "no")</dd>
-            }
-            @if (_lastResultRows.HasValue)
-            {
-                <dt>Result Rows</dt>
-                <dd>@_lastResultRows.Value</dd>
-            }
-        </dl>
-    </aside>
+    @if (DemoOpts.Value.DemoStatsEnabled)
+    {
+        <aside class="stats-panel">
+            <h3>Demo Stats</h3>
+            <dl>
+                <dt>Pipeline</dt>
+                <dd>@_lastPipeline</dd>
+                <dt>Model</dt>
+                <dd>@_statsModelName</dd>
+                <dt>Latency</dt>
+                <dd>@(_lastLatencyMs > 0 ? $"{_lastLatencyMs} ms" : "—")</dd>
+                <dt>Tokens</dt>
+                <dd>@(_lastTokensGenerated.HasValue ? _lastTokensGenerated.Value.ToString() : "—")</dd>
+                <dt>Tokens/s</dt>
+                <dd>@(_lastTokensPerSecond.HasValue ? $"{_lastTokensPerSecond.Value:F1}" : "—")</dd>
+                @if (_lastToolCallCount.HasValue)
+                {
+                    <dt>Tool Calls</dt>
+                    <dd>@_lastToolCallCount.Value</dd>
+                }
+                @if (_lastIrFirstTry.HasValue)
+                {
+                    <dt>IR First Try</dt>
+                    <dd>@(_lastIrFirstTry.Value ? "yes" : "no")</dd>
+                }
+                @if (_lastResultRows.HasValue)
+                {
+                    <dt>Result Rows</dt>
+                    <dd>@_lastResultRows.Value</dd>
+                }
+            </dl>
+        </aside>
+    }
 </div>
 
 @code {
+    private sealed record ChatMsg(
+        string Role,
+        string Text = "",
+        string? Pipeline = null,
+        bool IsError = false,
+        IReadOnlyList<CitationLink>? Citations = null);
+
+    private sealed record CitationLink(int Index, string? Title, string? Url);
+
     private string _input = "";
     private bool _busy;
     private string _lastPipeline = "—";
@@ -80,7 +117,8 @@
     private int? _lastToolCallCount;
     private bool? _lastIrFirstTry;
     private int? _lastResultRows;
-    private readonly List<(string Role, string Text)> _messages = [];
+    private IReadOnlyList<CitationLink>? _pendingCitations;
+    private readonly List<ChatMsg> _messages = [];
 
     // Component-level CTS cancelled when the circuit disposes (user closes tab)
     private readonly CancellationTokenSource _disposeCts = new();
@@ -100,12 +138,12 @@
         _busy = true;
         var userMsg = _input;
         _input = "";
-        _messages.Add(("user", userMsg));
+        _messages.Add(new ChatMsg("user", userMsg));
         await InvokeAsync(StateHasChanged);
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var sb = new System.Text.StringBuilder();
-        _messages.Add(("assistant", ""));
+        _messages.Add(new ChatMsg("assistant"));
         var idx = _messages.Count - 1;
 
         // Reset per-request stats
@@ -114,6 +152,7 @@
         _lastToolCallCount = null;
         _lastIrFirstTry = null;
         _lastResultRows = null;
+        _pendingCitations = null;
 
         // Per-send CTS with 120-second hard timeout, cancelled on circuit dispose
         using var sendCts = CancellationTokenSource.CreateLinkedTokenSource(_disposeCts.Token);
@@ -164,16 +203,33 @@
                         ParseStats(dataLine["data: ".Length..]);
                     eventHasData = false;
                 }
+                else if (line.StartsWith("event: citations", StringComparison.Ordinal))
+                {
+                    var dataLine = await reader.ReadLineAsync(sendCts.Token);
+                    if (dataLine?.StartsWith("data: ", StringComparison.Ordinal) == true)
+                        _pendingCitations = ParseCitations(dataLine["data: ".Length..]);
+                    eventHasData = false;
+                }
+                else if (line.StartsWith("event: ", StringComparison.Ordinal))
+                {
+                    // Unhandled named event — consume its data: line and discard
+                    await reader.ReadLineAsync(sendCts.Token);
+                    eventHasData = false;
+                }
                 else if (line.StartsWith("data: ", StringComparison.Ordinal))
                 {
                     var token = line["data: ".Length..];
                     if (token == "[DONE]") break;
-                    if (token.StartsWith("[ERROR]", StringComparison.Ordinal)) break;
+                    if (token.StartsWith("[ERROR]", StringComparison.Ordinal))
+                    {
+                        _messages[idx] = _messages[idx] with { IsError = true };
+                        break;
+                    }
                     // SSE spec: consecutive data: lines within the same event join with \n
                     if (eventHasData) sb.Append('\n');
                     sb.Append(token);
                     eventHasData = true;
-                    _messages[idx] = ("assistant", sb.ToString());
+                    _messages[idx] = _messages[idx] with { Text = sb.ToString() };
                     await InvokeAsync(StateHasChanged);
                 }
             }
@@ -181,17 +237,25 @@
         catch (OperationCanceledException)
         {
             if (_messages[idx].Text.Length == 0)
-                _messages[idx] = ("assistant", "[Request timed out or cancelled]");
+                _messages[idx] = new ChatMsg("assistant", "[Request timed out or cancelled]", IsError: true);
         }
         catch (Exception ex)
         {
-            _messages[idx] = ("assistant", $"[Error: {ex.Message}]");
+            _messages[idx] = new ChatMsg("assistant", $"[Error: {ex.Message}]", IsError: true);
         }
         finally
         {
             sw.Stop();
             _lastLatencyMs = sw.ElapsedMilliseconds;
             _busy = false;
+            if (idx >= 0 && idx < _messages.Count)
+            {
+                _messages[idx] = _messages[idx] with
+                {
+                    Pipeline  = _lastPipeline == "—" ? null : _lastPipeline,
+                    Citations = _pendingCitations
+                };
+            }
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -226,6 +290,24 @@
         {
             System.Diagnostics.Debug.WriteLine($"[Chat] ParseStats failed: {ex.Message}");
         }
+    }
+
+    private List<CitationLink> ParseCitations(string json)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var list = new List<CitationLink>();
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                var index = el.TryGetProperty("index", out var idx) ? idx.GetInt32() : 0;
+                var title = el.TryGetProperty("title", out var t) ? t.GetString() : null;
+                var url   = el.TryGetProperty("url",   out var u) ? u.GetString() : null;
+                list.Add(new CitationLink(index, title, url));
+            }
+            return list;
+        }
+        catch { return []; }
     }
 
     public ValueTask DisposeAsync()

@@ -124,3 +124,54 @@ main  { flex: 1; display: flex; overflow: hidden; }
 .stats-panel dl { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; }
 .stats-panel dt { color: #666; }
 .stats-panel dd { color: #ccc; word-break: break-all; }
+
+/* Pipeline badges */
+.pipeline-badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    border-radius: 4px;
+    padding: 1px 5px;
+    margin-bottom: 3px;
+    letter-spacing: 0.03em;
+}
+.badge-docs     { background: #1e3a5f; color: #7ab3f0; }
+.badge-metadata { background: #1a3d2b; color: #5fcf87; }
+.badge-data     { background: #3d2200; color: #f0a03a; }
+
+/* Error messages */
+.error-text {
+    background: #3d0f0f !important;
+    border-color: #7f2020 !important;
+    color: #f08080;
+}
+
+/* Citation links */
+.citations {
+    margin-top: 6px;
+    font-size: 0.75rem;
+    color: #888;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+}
+.citations a { color: #7c6af7; text-decoration: none; }
+.citations a:hover { text-decoration: underline; }
+
+/* Animated thinking dots */
+.thinking-dots span {
+    display: inline-block;
+    animation: thinking-pulse 1.2s infinite;
+    color: #666;
+    font-style: italic;
+    font-size: 1.2rem;
+}
+.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes thinking-pulse {
+    0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+    40%           { opacity: 1;   transform: scale(1); }
+}

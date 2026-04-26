@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Version** | 0.8 |
-| **Status** | In progress — Sprint 4 complete |
+| **Version** | 0.9 |
+| **Status** | Complete — Sprint 5 complete |
 | **Scope** | Proof of Concept |
 | **Date** | April 2026 |
-| **Changes from 0.7** | Sprint 4 implemented: IR extensions (`IsNull`, `IsNotNull`, `Distinct`, `GroupBy`, `RelativePeriod` with 7 tokens), `CompilerException`, A/B Test Client (round-robin `AbTestChatClient`), OTel custom metrics (`RagMetrics` with 4 instruments + observable gauge), pipeline stats SSE with `PipelineResult` JSON, demo stats panel UI enhancements, 166 tests green |
+| **Changes from 0.8** | Sprint 5 implemented: `DemoOptions` with 4 feature flags, `DemoQueriesService` loading 9 curated warmup queries, `/demo/warmup` POST endpoint for embedding cache pre-warming, Chat.razor UI refinements (SSE named-event reader fix, `ChatMsg` record type, pipeline badges, citation links, animated spinner, error handling, stats panel), 172 tests green |
 
 ---
 
@@ -63,6 +63,12 @@ The POC validates the architecture on developer-laptop GPUs, demonstrates the sy
 ---
 
 ## 3. Use Cases
+
+| UC | Status | Purpose |
+|---|---|---|
+| **UC-1: Docs** | Implemented | RAG over Confluence/Jira: hybrid search (BM25 + kNN RRF), grounded generation with citations |
+| **UC-2: Metadata** | Implemented | Tool-calling against SQL Server + MongoDB catalog: entity resolution, attributes, relationships, CDEs |
+| **UC-3: Data** | Implemented | NL → IR JSON → Elasticsearch DSL: typed queries with validation and retry |
 
 ### 3.1 UC-1: Documentation Q&A
 
@@ -811,15 +817,34 @@ Reduced from 1–2 weeks; NVIDIA Container Toolkit confirmed pre-installed on bo
 - Pipeline stats SSE: all pipelines emit final `event: stats` with `PipelineResult` JSON (pipeline, latencyMs, modelName, tokensGenerated, tokensPerSecond, toolCallCount?, irValidFirstTry?, totalResultRows?).
 - Demo Stats panel UI enhancements: parsing and display of tokens, tokens/s, tool calls, IR first-try success, result rows.
 
-### Phase 5 — Demo Preparation and Senior Management Presentation (2 weeks)
-- Curated demo script covering all three use cases.
-- Live side-by-side 8B vs 14B comparison on UC-3 prompts (home laptop, A/B routing).
-- Latency profiling: charted tokens-per-second per environment via OTel metrics.
-- Hardware recommendation: production GPU server spec with rationale.
-- Demo Stats panel polished; Aspire Dashboard pre-arranged with relevant views.
-- Stakeholder rehearsal; fallback plans for technical issues.
+### Phase 5 — Demo Preparation and Senior Management Presentation (2 weeks) — **Completed (Sprint 5)**
 
-**Total POC: ~12–13 weeks** for a single engineer (Phases 0–5).
+**Demo infrastructure:**
+
+- **`DemoOptions`** — four feature flags:
+  - `DemoMode`: enables/disables demo-specific features (default `false`).
+  - `DemoStatsEnabled`: shows stats panel in Chat.razor UI (default `true`).
+  - `DemoDebugPanel`: renders citations + debug details in messages (default `false`).
+  - `DemoPreWarmedQueries`: array of pre-warming query strings (configured via env var or config).
+
+- **`DemoQueriesService`** — loads 9 curated warmup queries from `wwwroot/DemoQueries.json`:
+  - 3 UC-1 (Docs) queries covering settlement fails, reconciliation, trade booking.
+  - 3 UC-2 (Metadata) queries covering Trade entity, CDEs, Counterparty relationships.
+  - 3 UC-3 (Data) queries covering failed trades (sorted), monthly settlements (aggregation), counterparty filtering.
+
+- **`POST /demo/warmup`** endpoint — pre-warms embedding cache by routing all 9 demo queries through `IntentRouter`. Useful for ensuring snappy responses during live demo. Response JSON: `{ warmed: <count>, queries: [ { query, pipeline }, ... ] }`.
+
+**Chat.razor UI refinements:**
+
+- **SSE named-event reader fix** — correctly parses `event: stats` frames separate from default `data:` stream.
+- **`ChatMsg` record type** — encapsulates each message with `Role` (user/assistant), `Text`, `Pipeline` (docs/metadata/data for assistant), `IsError` flag, and optional `Citations` list.
+- **Pipeline badges** — each assistant message shows a small colored badge (`badge-docs`, `badge-metadata`, `badge-data`) indicating which pipeline answered.
+- **Citation links** — when `DemoDebugPanel` is enabled, citations render as clickable links to source URLs (Confluence pages, Jira issues) or plain titles.
+- **Animated spinner** — while waiting for a response, shows animated dots (`...`) with CSS keyframes.
+- **Error handling** — network or server errors display in red (`error-text` class) with details.
+- **Demo Stats panel** — right sidebar (when `DemoStatsEnabled`), shows per-request metrics: Pipeline, Model, Latency, Tokens, Tokens/s, Tool Calls (UC-2), IR First Try (UC-3), Result Rows (UC-3). Metrics update after each `stats` event.
+
+**Total POC: ~12–14 weeks** for a single engineer (Phases 0–5, inclusive of Sprint 5).
 
 ### 12.1 Demo Strategy
 
