@@ -26,9 +26,7 @@ public sealed class MongoBusinessRulesRepository : IBusinessRulesRepository
         activity?.SetTag("entity", entityName);
         activity?.SetTag("mandatoryOnly", mandatoryOnly);
 
-        var entityCode = entityName.ToLower().Replace(" ", "");
-
-        var collation = new Collation("en", strength: CollationStrength.Secondary);
+        var entityCode = entityName.ToLowerInvariant().Replace(" ", "");
 
         var filterBuilder = Builders<RulesDocument>.Filter;
         var filter = filterBuilder.Eq("entityCode", entityCode)
@@ -38,7 +36,7 @@ public sealed class MongoBusinessRulesRepository : IBusinessRulesRepository
             filter &= filterBuilder.Eq("ruleType", "MANDATORY");
 
         var docs = await _collection
-            .Find(filter, new FindOptions { Collation = collation })
+            .Find(filter)
             .ToListAsync(ct);
 
         return docs
