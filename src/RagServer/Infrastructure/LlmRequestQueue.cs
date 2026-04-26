@@ -26,6 +26,12 @@ public sealed class LlmRequestQueue : IHostedService
         });
     }
 
+    /// <summary>
+    /// The number of items currently waiting in the bounded channel.
+    /// Sampled by the OTel queue-depth observable gauge.
+    /// </summary>
+    public int CurrentDepth => _channel.Reader.Count;
+
     public async Task<T> EnqueueAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken callerCt)
     {
         var tcs = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);

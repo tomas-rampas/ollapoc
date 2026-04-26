@@ -115,4 +115,30 @@ public class QuerySpecValidatorTests
         Assert.True(result.IsValid);
         Assert.Empty(result.Errors);
     }
+
+    [Fact]
+    public void Given_IsNullFilterWithEmptyValue_When_Validated_Then_IsValid()
+    {
+        var spec = new QuerySpec("Trade",
+            [new Filter("Status", FilterOperator.IsNull, "")],
+            null, [], [], null);
+
+        var result = Validator.Validate(spec, KnownEntities);
+
+        Assert.True(result.IsValid);
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void Given_EqFilterWithEmptyValue_When_Validated_Then_HasError()
+    {
+        var spec = new QuerySpec("Trade",
+            [new Filter("Status", FilterOperator.Eq, "")],
+            null, [], [], null);
+
+        var result = Validator.Validate(spec, KnownEntities);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Contains("Value") && e.Contains("Eq"));
+    }
 }

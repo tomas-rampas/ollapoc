@@ -33,8 +33,11 @@ public sealed class QuerySpecValidator
         {
             if (string.IsNullOrWhiteSpace(filter.Field))
                 errors.Add("Filter.Field must not be null or whitespace.");
-            if (filter.Value is null)
-                errors.Add($"Filter on field '{filter.Field}' has a null Value.");
+
+            // IsNull/IsNotNull operate on field existence — Value is ignored and may be empty.
+            var valueRequired = filter.Operator is not (FilterOperator.IsNull or FilterOperator.IsNotNull);
+            if (valueRequired && string.IsNullOrEmpty(filter.Value))
+                errors.Add($"Filter on field '{filter.Field}' requires a non-empty Value for operator {filter.Operator}.");
         }
 
         // ── TimeRange ─────────────────────────────────────────────────────────

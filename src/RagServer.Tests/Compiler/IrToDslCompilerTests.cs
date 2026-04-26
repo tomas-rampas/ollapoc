@@ -171,4 +171,134 @@ public class IrToDslCompilerTests
         var mustNotClause = boolQ.MustNot!.FirstOrDefault(q => q.Term is not null);
         Assert.NotNull(mustNotClause);
     }
+
+    // ── Sprint 4 Wave 1A tests ────────────────────────────────────────────────
+
+    [Fact]
+    public void Given_IsNullFilter_When_Compiled_Then_GeneratesMustNotExistsQuery()
+    {
+        var spec = SimpleSpec(filters: [new Filter("Status", FilterOperator.IsNull, "")]);
+
+        var request = Compiler.Compile(spec);
+
+        var boolQ = request.Query!.Bool;
+        Assert.NotNull(boolQ);
+        Assert.NotNull(boolQ!.MustNot);
+        var existsClause = boolQ.MustNot!.FirstOrDefault(q => q.Exists is not null);
+        Assert.NotNull(existsClause);
+        Assert.Equal("Status", existsClause!.Exists!.Field.ToString());
+    }
+
+    [Fact]
+    public void Given_IsNotNullFilter_When_Compiled_Then_GeneratesExistsQueryInMust()
+    {
+        var spec = SimpleSpec(filters: [new Filter("Status", FilterOperator.IsNotNull, "")]);
+
+        var request = Compiler.Compile(spec);
+
+        var boolQ = request.Query!.Bool;
+        Assert.NotNull(boolQ);
+        Assert.NotNull(boolQ!.Must);
+        var existsClause = boolQ.Must!.FirstOrDefault(q => q.Exists is not null);
+        Assert.NotNull(existsClause);
+        Assert.Equal("Status", existsClause!.Exists!.Field.ToString());
+    }
+
+    [Fact]
+    public void Given_DistinctAggregation_When_Compiled_Then_GeneratesCardinalityAgg()
+    {
+        var spec = SimpleSpec(aggregations: [new Aggregation(AggregationType.Distinct, "Status", "unique_statuses")]);
+
+        var request = Compiler.Compile(spec);
+
+        Assert.NotNull(request.Aggregations);
+        Assert.True(request.Aggregations!.ContainsKey("unique_statuses"));
+        Assert.NotNull(request.Aggregations["unique_statuses"].Cardinality);
+    }
+
+    [Fact]
+    public void Given_GroupByAggregation_When_Compiled_Then_GeneratesTermsAgg()
+    {
+        var spec = SimpleSpec(aggregations: [new Aggregation(AggregationType.GroupBy, "InstrumentType", "by_instrument")]);
+
+        var request = Compiler.Compile(spec);
+
+        Assert.NotNull(request.Aggregations);
+        Assert.True(request.Aggregations!.ContainsKey("by_instrument"));
+        Assert.NotNull(request.Aggregations["by_instrument"].Terms);
+    }
+
+    [Fact]
+    public void Given_RelativePeriod_Today_When_Compiled_Then_GeneratesNowDDateRange()
+    {
+        var spec = SimpleSpec(timeRange: new TimeRange("TradeDate", null, null, "today"));
+
+        var request = Compiler.Compile(spec);
+
+        var boolQ = request.Query!.Bool;
+        Assert.NotNull(boolQ);
+        var rangeClause = boolQ!.Must?.FirstOrDefault(q => q.Range is not null);
+        Assert.NotNull(rangeClause);
+        var range = (Elastic.Clients.Elasticsearch.QueryDsl.UntypedRangeQuery)rangeClause!.Range!;
+        Assert.Equal("now/d",      range.Gte?.ToString());
+        Assert.Equal("now+1d/d",   range.Lte?.ToString());
+    }
+
+    [Fact]
+    public void Given_RelativePeriod_Last7Days_When_Compiled_Then_GeneratesCorrectDateMath()
+    {
+        var spec = SimpleSpec(timeRange: new TimeRange("TradeDate", null, null, "last_7_days"));
+
+        var request = Compiler.Compile(spec);
+
+        var boolQ = request.Query!.Bool;
+        Assert.NotNull(boolQ);
+        var rangeClause = boolQ!.Must?.FirstOrDefault(q => q.Range is not null);
+        Assert.NotNull(rangeClause);
+        var range = (Elastic.Clients.Elasticsearch.QueryDsl.UntypedRangeQuery)rangeClause!.Range!;
+        Assert.Equal("now-7d/d", range.Gte?.ToString());
+        Assert.Equal("now", range.Lte?.ToString());
+    }
+
+    [Fact]
+    public void Given_RelativePeriod_ThisYear_When_Compiled_Then_GeneratesCorrectDateMath()
+    {
+        var spec = SimpleSpec(timeRange: new TimeRange("TradeDate", null, null, "this_year"));
+
+        var request = Compiler.Compile(spec);
+
+        var boolQ = request.Query!.Bool;
+        Assert.NotNull(boolQ);
+        var rangeClause = boolQ!.Must?.FirstOrDefault(q => q.Range is not null);
+        Assert.NotNull(rangeClause);
+        var range = (Elastic.Clients.Elasticsearch.QueryDsl.UntypedRangeQuery)rangeClause!.Range!;
+        Assert.Equal("now/y",      range.Gte?.ToString());
+        Assert.Equal("now+1y/y",   range.Lte?.ToString());
+    }
+
+    [Fact]
+    public void Given_UnknownRelativePeriod_When_Compiled_Then_ThrowsCompilerException()
+    {
+        var spec = SimpleSpec(timeRange: new TimeRange("TradeDate", null, null, "last_quarter"));
+
+        Assert.Throws<CompilerException>(() => Compiler.Compile(spec));
+    }
+
+    [Fact]
+    public void Given_RelativePeriodTakesPrecedenceOverFromTo_When_Compiled_Then_UsesDateMath()
+    {
+        var spec = SimpleSpec(timeRange: new TimeRange("TradeDate", "2025-01-01", "2025-12-31", "today"));
+
+        var request = Compiler.Compile(spec);
+
+        var boolQ = request.Query!.Bool;
+        Assert.NotNull(boolQ);
+        var rangeClause = boolQ!.Must?.FirstOrDefault(q => q.Range is not null);
+        Assert.NotNull(rangeClause);
+        var range = (Elastic.Clients.Elasticsearch.QueryDsl.UntypedRangeQuery)rangeClause!.Range!;
+        // RelativePeriod "today" must win over the explicit From/To dates
+        Assert.Equal("now/d",    range.Gte?.ToString());
+        Assert.Equal("now+1d/d", range.Lte?.ToString());
+        Assert.NotEqual("2025-01-01", range.Gte?.ToString());
+    }
 }

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -14,8 +15,15 @@ namespace RagServer.Pipelines;
 public sealed class DocsPipeline(
     DocsRetriever retriever,
     [FromKeyedServices("chat")] IChatClient chatClient,
-    IOptions<RagOptions> opts)
+    IOptions<RagOptions> opts,
+    IOptions<OllamaOptions> ollamaOpts)
 {
+    private static readonly JsonSerializerOptions StatsJsonOpts = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
     private const string SystemPrompt =
         "Answer ONLY from the source passages provided. " +
         "Cite each passage you use with [n] where n is its number. " +
@@ -24,6 +32,7 @@ public sealed class DocsPipeline(
     public async Task ExecuteAsync(string query, HttpResponse response, CancellationToken ct)
     {
         using var activity = RagActivitySource.Source.StartActivity("rag.docs_pipeline");
+        var sw = Stopwatch.StartNew();
 
         var chunks = await retriever.RetrieveAsync(query, ct);
         activity?.SetTag("rag.chunks_retrieved", chunks.Count);
@@ -85,6 +94,31 @@ public sealed class DocsPipeline(
             title = c.Title
         }));
         await response.WriteAsync($"event: citations\ndata: {citationsJson}\n\n", ct);
+        await response.Body.FlushAsync(ct);
+
+        // Emit stats event
+        sw.Stop();
+        var tokenCount = answer.Length > 0 ? Math.Max(1, answer.Length / 4) : (int?)null;
+        var latencyMs  = sw.ElapsedMilliseconds;
+        var tps        = (latencyMs > 0 && tokenCount.HasValue)
+            ? Math.Round((double)tokenCount.Value / latencyMs * 1000.0, 1) : (double?)null;
+
+        RagMetrics.RequestDurationMs.Record(latencyMs,
+            new KeyValuePair<string, object?>("pipeline", "Docs"),
+            new KeyValuePair<string, object?>("model", ollamaOpts.Value.ChatModel));
+        if (tps.HasValue)
+            RagMetrics.TokensPerSecond.Record((float)tps.Value,
+                new KeyValuePair<string, object?>("pipeline", "Docs"));
+
+        var stats = new PipelineResult(
+            Pipeline:       "Docs",
+            LatencyMs:      latencyMs,
+            ModelName:      ollamaOpts.Value.ChatModel,
+            TokensGenerated: tokenCount,
+            TokensPerSecond: tps);
+
+        var statsJson = JsonSerializer.Serialize(stats, StatsJsonOpts);
+        await response.WriteAsync($"event: stats\ndata: {statsJson}\n\n", ct);
         await response.Body.FlushAsync(ct);
     }
 

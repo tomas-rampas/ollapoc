@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Version** | 0.7 |
-| **Status** | In progress — Sprint 3 complete |
+| **Version** | 0.8 |
+| **Status** | In progress — Sprint 4 complete |
 | **Scope** | Proof of Concept |
 | **Date** | April 2026 |
-| **Changes from 0.6** | Sprint 3 (UC-3 Data Pipeline) implemented: `QuerySpec` IR, `QuerySpecValidator`, `IrToDslCompiler` (NL → ES DSL), `DataPipeline` (validate/retry loop, SSE streaming), index-name injection guard, 148 tests green |
+| **Changes from 0.7** | Sprint 4 implemented: IR extensions (`IsNull`, `IsNotNull`, `Distinct`, `GroupBy`, `RelativePeriod` with 7 tokens), `CompilerException`, A/B Test Client (round-robin `AbTestChatClient`), OTel custom metrics (`RagMetrics` with 4 instruments + observable gauge), pipeline stats SSE with `PipelineResult` JSON, demo stats panel UI enhancements, 166 tests green |
 
 ---
 
@@ -273,6 +273,32 @@ public record QuerySpec(
 );
 ```
 
+### 5.7 IR Extensions (Sprint 4)
+
+**Enhanced `FilterOperator` enum:**
+
+- Added `IsNull` and `IsNotNull` for null-checking on nullable fields.
+
+**Enhanced `AggregationType` enum:**
+
+- Added `Distinct` for distinct-value counting.
+- Added `GroupBy` for entity-key grouping with sub-aggregations.
+
+**Enhanced `TimeRange`:**
+
+- Now supports `RelativePeriod` token mode with 7 relative-date-math tokens:
+  - `today`, `yesterday`, `last_7_days`, `last_30_days`, `this_month`, `this_year`, `last_year`.
+- Compiler translates these deterministically to ES range queries with `now` math expressions.
+
+**`CompilerException`:**
+
+- Typed exception emitted by `IrToDslCompiler` for invalid IR states:
+  - Unknown entity.
+  - Unmappable field.
+  - Invalid aggregation nesting.
+  - Date math overflow.
+- Allows validation/retry loop to provide precise error feedback to the model.
+
 ### 5.7 Ingestion Service
 
 A `IHostedService` running inside the RAG server (POC scale).
@@ -316,7 +342,22 @@ Single Ollama instance per environment. CUDA backend used when available, CPU fa
 - GPU layer offload: `OLLAMA_NUM_GPU=999` (i.e. all layers) on the 16 GB laptop for 14B. On 8 GB GPUs the model fits fully without spillover at Q4_K_M.
 - Quantization: Q4_K_M as default. Q5_K_M considered if quality is the bottleneck and VRAM allows.
 
-### 5.9 Elasticsearch 9.x (dual role)
+### 5.9 A/B Test Client (Sprint 4)
+
+**Purpose:** side-by-side model comparison for demo and evaluation without redeployment.
+
+**Implementation:**
+
+- `AbTestChatClient` wraps two `IChatClient` instances.
+- Round-robin routing: alternates between model A and model B per request.
+- Controlled via environment variables:
+  - `AB_TEST_ENABLED`: `true` to activate.
+  - `AB_TEST_MODEL_A`: Model name or URI (e.g. `qwen3:8b`).
+  - `AB_TEST_MODEL_B`: Model name or URI (e.g. `qwen3:14b`).
+
+**Demo use case:** live side-by-side UC-3 comparison (8B vs 14B) on the home laptop to demonstrate GPU-server benefit.
+
+### 5.10 Elasticsearch 9.x (dual role)
 
 ES serves two distinct purposes — **logically separate, physically the same cluster** for the POC:
 
@@ -339,7 +380,58 @@ ES runs in Docker for the POC (single node, security minimal — `xpack.security
 
 **Client-server version coupling:** the .NET client tracks server major version. ES 9.x server requires `Elastic.Clients.Elasticsearch` 9.x. Cross-major compatibility is not supported.
 
-### 5.10 Telemetry Dashboard (.NET Aspire Dashboard)
+### 5.11 OTel Custom Metrics (Sprint 4)
+
+**`RagMetrics` class** emits application-specific instruments:
+
+| Instrument | Type | Purpose |
+|---|---|---|
+| `rag.request_duration_ms` | Histogram | End-to-end latency per pipeline (Docs, Metadata, Data) |
+| `rag.tokens_per_second` | Gauge | LLM throughput sampled per request |
+| `rag.ir_first_try_success` | Counter | Data pipeline: IR validated on first attempt (UC-3) |
+| `rag.es_search_duration_ms` | Histogram | Elasticsearch query execution time per pipeline |
+| `rag.queue_depth` | Observable Gauge | Request queue backlog in real time |
+
+**Integration:** metrics exported to Aspire Dashboard via OTLP, visible in the dashboard's metrics view and usable for SLI/SLO charting.
+
+### 5.12 Pipeline Stats SSE (Sprint 4)
+
+All three pipelines (Docs, Metadata, Data) now emit a final `event: stats` SSE frame before `[DONE]`:
+
+```json
+event: stats
+data: {
+  "pipeline": "docs|metadata|data",
+  "latencyMs": 3200,
+  "modelName": "qwen3:8b",
+  "tokensGenerated": 156,
+  "tokensPerSecond": 48.75,
+  "toolCallCount": null,
+  "irValidFirstTry": null,
+  "totalResultRows": null
+}
+```
+
+**Field meanings:**
+
+- `latencyMs`: end-to-end request duration.
+- `modelName`: model that processed the request (useful in A/B test mode).
+- `tokensGenerated`: output token count from the LLM response.
+- `tokensPerSecond`: computed throughput.
+- `toolCallCount`: present only in Metadata pipeline; count of tool invocations.
+- `irValidFirstTry`: present only in Data pipeline; boolean indicating first-try IR validation success.
+- `totalResultRows`: present only in Data pipeline; count of rows returned by the ES query.
+
+**Demo Stats panel UI:** Chat.razor parses the `stats` frame and displays:
+- Tokens generated (all pipelines)
+- Tokens/second (all pipelines)
+- Tool Calls (Metadata only; omitted for Docs and Data)
+- IR First Try (Data only; omitted for Docs and Metadata)
+- Result Rows (Data only; omitted for Docs and Metadata)
+
+Purpose: make key performance numbers visible in the UI without alt-tabbing to the Aspire Dashboard.
+
+### 5.13 Telemetry Dashboard (.NET Aspire Dashboard)
 
 Standalone container, Microsoft-published image (`mcr.microsoft.com/dotnet/aspire-dashboard`). Acts as the OTLP endpoint for every other component in the system; presents the unified view.
 
@@ -540,7 +632,7 @@ To be procured if the demo is approved. The POC produces the spec, supported by 
 
 In production, Aspire Dashboard would typically be replaced by Grafana/Prometheus/Tempo with persistent storage, but it remains valid for staging environments. Elasticsearch would be a managed multi-node cluster, potentially with separate data tiers for vector and operational indices.
 
-A concrete recommendation is a deliverable from the POC — see §12 Phase 4.
+A concrete recommendation is a deliverable from the POC — see §12 Phase 5.
 
 ### 9.3 CPU-only Fallback (64 GB Server, No GPU)
 
@@ -710,15 +802,24 @@ Reduced from 1–2 weeks; NVIDIA Container Toolkit confirmed pre-installed on bo
 - A/B model comparison (Qwen3 8B vs 14B on the home laptop; vs Phi-4-mini).
 - Golden set extended.
 
-### Phase 4 — Demo Preparation and Senior Management Presentation (2 weeks)
+### Phase 4 — Performance Instrumentation and A/B Testing (2 weeks) — **Completed (Sprint 4)**
+
+- IR extensions: `FilterOperator` (`IsNull`, `IsNotNull`), `AggregationType` (`Distinct`, `GroupBy`), `TimeRange` (`RelativePeriod` with 7 tokens).
+- `CompilerException` for typed error handling in data pipeline.
+- A/B Test Client (`AbTestChatClient`) for side-by-side model comparison via env vars (`AB_TEST_ENABLED`, `AB_TEST_MODEL_A`, `AB_TEST_MODEL_B`).
+- OTel custom metrics (`RagMetrics`) with 4 instruments (`rag.request_duration_ms`, `rag.tokens_per_second`, `rag.ir_first_try_success`, `rag.es_search_duration_ms`) plus observable gauge (`rag.queue_depth`).
+- Pipeline stats SSE: all pipelines emit final `event: stats` with `PipelineResult` JSON (pipeline, latencyMs, modelName, tokensGenerated, tokensPerSecond, toolCallCount?, irValidFirstTry?, totalResultRows?).
+- Demo Stats panel UI enhancements: parsing and display of tokens, tokens/s, tool calls, IR first-try success, result rows.
+
+### Phase 5 — Demo Preparation and Senior Management Presentation (2 weeks)
 - Curated demo script covering all three use cases.
-- Side-by-side 8B vs 14B comparison on UC-3 prompts (home laptop).
-- Latency profiling: charted tokens-per-second per environment.
+- Live side-by-side 8B vs 14B comparison on UC-3 prompts (home laptop, A/B routing).
+- Latency profiling: charted tokens-per-second per environment via OTel metrics.
 - Hardware recommendation: production GPU server spec with rationale.
 - Demo Stats panel polished; Aspire Dashboard pre-arranged with relevant views.
 - Stakeholder rehearsal; fallback plans for technical issues.
 
-**Total POC: ~10–11 weeks** for a single engineer.
+**Total POC: ~12–13 weeks** for a single engineer (Phases 0–5).
 
 ### 12.1 Demo Strategy
 

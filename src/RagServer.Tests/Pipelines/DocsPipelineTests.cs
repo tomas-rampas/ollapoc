@@ -89,7 +89,8 @@ public class DocsPipelineTests
         return new DocsPipeline(
             retriever ?? BuildOfflineRetriever(),
             mockChat.Object,
-            Create(new RagOptions()));
+            Create(new RagOptions()),
+            Create(new OllamaOptions()));
     }
 
     // ── Tests ─────────────────────────────────────────────────────────────────
@@ -205,5 +206,19 @@ public class DocsPipelineTests
         // Accept either early cancellation exception or clean early exit (no throw)
         if (ex is not null)
             Assert.IsAssignableFrom<OperationCanceledException>(ex);
+    }
+
+    [Fact]
+    public async Task Given_SuccessfulExecution_When_ExecuteAsync_Then_EmitsStatsEvent()
+    {
+        var pipeline = BuildPipeline();
+        var (response, body) = BuildResponse();
+
+        await pipeline.ExecuteAsync("test query", response, CancellationToken.None);
+
+        var text = ReadBody(body);
+        Assert.Contains("event: stats", text);
+        Assert.Contains("\"pipeline\"", text);
+        Assert.Contains("\"latencyMs\"", text);
     }
 }

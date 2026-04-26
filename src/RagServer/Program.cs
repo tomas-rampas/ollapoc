@@ -90,14 +90,34 @@ builder.Services.Configure<ConfluenceOptions>(builder.Configuration.GetSection("
 builder.Services.Configure<JiraOptions>(builder.Configuration.GetSection("Jira"));
 builder.Services.Configure<IngestionOptions>(builder.Configuration.GetSection("Ingestion"));
 
+var abTestEnabled = builder.Configuration["AB_TEST_ENABLED"]?.ToLowerInvariant() == "true";
+builder.Services.Configure<AbTestOptions>(o =>
+{
+    o.ModelA  = builder.Configuration["AB_TEST_MODEL_A"] ?? o.ModelA;
+    o.ModelB  = builder.Configuration["AB_TEST_MODEL_B"] ?? o.ModelB;
+    o.Enabled = abTestEnabled;
+});
+
 // ── Ollama AI Clients (keyed by role) ─────────────────────────────────────────
 // OllamaApiClient implements IChatClient and IEmbeddingGenerator<string, Embedding<float>> directly.
 // Resolved via IOptions to keep a single source of truth for connection strings.
-builder.Services.AddKeyedSingleton<IChatClient>("chat", (sp, _) =>
+
+// AbTestChatClient wraps two model clients; when Enabled=false it passes through to model A.
+builder.Services.AddSingleton<AbTestChatClient>(sp =>
 {
-    var opts = sp.GetRequiredService<IOptions<OllamaOptions>>().Value;
-    return (IChatClient)new OllamaApiClient(new Uri(opts.BaseUrl), opts.ChatModel);
+    var abOpts     = sp.GetRequiredService<IOptions<AbTestOptions>>().Value;
+    var ollamaOpts = sp.GetRequiredService<IOptions<OllamaOptions>>().Value;
+    var clientA    = (IChatClient)new OllamaApiClient(new Uri(ollamaOpts.BaseUrl), abOpts.ModelA);
+    var clientB    = (IChatClient)new OllamaApiClient(new Uri(ollamaOpts.BaseUrl), abOpts.ModelB);
+    return new AbTestChatClient(clientA, clientB, sp.GetRequiredService<IOptions<AbTestOptions>>());
 });
+
+builder.Services.AddKeyedSingleton<IChatClient>("chat", (sp, _) =>
+    abTestEnabled
+        ? (IChatClient)sp.GetRequiredService<AbTestChatClient>()
+        : (IChatClient)new OllamaApiClient(
+            new Uri(sp.GetRequiredService<IOptions<OllamaOptions>>().Value.BaseUrl),
+            sp.GetRequiredService<IOptions<OllamaOptions>>().Value.ChatModel));
 
 builder.Services.AddKeyedSingleton<IEmbeddingGenerator<string, Embedding<float>>>("embeddings", (sp, _) =>
 {
@@ -127,6 +147,7 @@ builder.Services.AddOpenTelemetry()
         .AddOtlpExporter())
     .WithMetrics(m => m
         .AddAspNetCoreInstrumentation()
+        .AddMeter("RagServer")
         .AddOtlpExporter());
 
 // ── Authentication ────────────────────────────────────────────────────────────
@@ -221,6 +242,10 @@ builder.Services.AddRazorComponents()
 builder.Services.AddHttpClient("rag");
 
 var app = builder.Build();
+
+// ── OTel queue-depth gauge (registered after Build() so app.Services is available) ──────────
+RagMetrics.Meter.CreateObservableGauge("rag.queue_depth",
+    () => app.Services.GetRequiredService<LlmRequestQueue>().CurrentDepth);
 
 // ── Startup warnings ──────────────────────────────────────────────────────────
 var startupLogger = app.Logger;

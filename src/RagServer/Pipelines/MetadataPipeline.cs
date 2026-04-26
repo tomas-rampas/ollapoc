@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -20,8 +21,15 @@ public sealed class MetadataPipeline(
     CatalogTools catalogTools,
     [FromKeyedServices("chat")] IChatClient chatClient,
     IOptions<RagOptions> opts,
-    ILogger<MetadataPipeline> logger)
+    ILogger<MetadataPipeline> logger,
+    IOptions<OllamaOptions> ollamaOpts)
 {
+    private static readonly JsonSerializerOptions StatsJsonOpts = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
     private const string SystemPrompt =
         "You are a catalog assistant. Use the provided tools to look up entity information. " +
         "Answer ONLY from tool results. Do not invent information.";
@@ -29,6 +37,7 @@ public sealed class MetadataPipeline(
     public async Task ExecuteAsync(string query, HttpResponse response, CancellationToken ct)
     {
         using var activity = RagActivitySource.Source.StartActivity("rag.metadata_pipeline");
+        var sw = Stopwatch.StartNew();
 
         // Register all 5 catalog tools via AIFunctionFactory.Create(Delegate)
         AIFunction[] aiFunctions =
@@ -113,6 +122,7 @@ public sealed class MetadataPipeline(
             .LastOrDefault(m => m.Role == ChatRole.Assistant &&
                                 !m.Contents.Any(c => c is FunctionCallContent));
 
+        var answerText = "";
         if (finalAnswer is not null)
         {
             foreach (var content in finalAnswer.Contents.OfType<TextContent>())
@@ -120,6 +130,7 @@ public sealed class MetadataPipeline(
                 var text = content.Text;
                 if (!string.IsNullOrEmpty(text))
                 {
+                    answerText += text;
                     await response.WriteAsync($"data: {EscapeSse(text)}\n\n", ct);
                     await response.Body.FlushAsync(ct);
                 }
@@ -129,6 +140,7 @@ public sealed class MetadataPipeline(
         {
             activity?.SetTag("rag.metadata.no_final_answer", true);
             const string fallback = "I could not produce a final answer within the allowed tool-call limit.";
+            answerText = fallback;
             await response.WriteAsync($"data: {fallback}\n\n", ct);
             await response.Body.FlushAsync(ct);
         }
@@ -136,6 +148,32 @@ public sealed class MetadataPipeline(
         // Always emit the tools_used metadata event
         var toolsJson = JsonSerializer.Serialize(toolsUsed.Distinct().ToList());
         await response.WriteAsync($"event: tools_used\ndata: {toolsJson}\n\n", ct);
+        await response.Body.FlushAsync(ct);
+
+        // Emit stats event
+        sw.Stop();
+        var tokenCount = answerText.Length > 0 ? Math.Max(1, answerText.Length / 4) : (int?)null;
+        var latencyMs  = sw.ElapsedMilliseconds;
+        var tps        = (latencyMs > 0 && tokenCount.HasValue)
+            ? Math.Round((double)tokenCount.Value / latencyMs * 1000.0, 1) : (double?)null;
+
+        RagMetrics.RequestDurationMs.Record(latencyMs,
+            new KeyValuePair<string, object?>("pipeline", "Metadata"),
+            new KeyValuePair<string, object?>("model", ollamaOpts.Value.ChatModel));
+        if (tps.HasValue)
+            RagMetrics.TokensPerSecond.Record((float)tps.Value,
+                new KeyValuePair<string, object?>("pipeline", "Metadata"));
+
+        var stats = new PipelineResult(
+            Pipeline:       "Metadata",
+            LatencyMs:      latencyMs,
+            ModelName:      ollamaOpts.Value.ChatModel,
+            TokensGenerated: tokenCount,
+            TokensPerSecond: tps,
+            ToolCallCount:  toolsUsed.Count);
+
+        var statsJson = JsonSerializer.Serialize(stats, StatsJsonOpts);
+        await response.WriteAsync($"event: stats\ndata: {statsJson}\n\n", ct);
         await response.Body.FlushAsync(ct);
     }
 

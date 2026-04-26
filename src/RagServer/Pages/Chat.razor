@@ -43,9 +43,28 @@
             <dt>Pipeline</dt>
             <dd>@_lastPipeline</dd>
             <dt>Model</dt>
-            <dd>@_modelBadge</dd>
+            <dd>@_statsModelName</dd>
             <dt>Latency</dt>
             <dd>@(_lastLatencyMs > 0 ? $"{_lastLatencyMs} ms" : "—")</dd>
+            <dt>Tokens</dt>
+            <dd>@(_lastTokensGenerated.HasValue ? _lastTokensGenerated.Value.ToString() : "—")</dd>
+            <dt>Tokens/s</dt>
+            <dd>@(_lastTokensPerSecond.HasValue ? $"{_lastTokensPerSecond.Value:F1}" : "—")</dd>
+            @if (_lastToolCallCount.HasValue)
+            {
+                <dt>Tool Calls</dt>
+                <dd>@_lastToolCallCount.Value</dd>
+            }
+            @if (_lastIrFirstTry.HasValue)
+            {
+                <dt>IR First Try</dt>
+                <dd>@(_lastIrFirstTry.Value ? "yes" : "no")</dd>
+            }
+            @if (_lastResultRows.HasValue)
+            {
+                <dt>Result Rows</dt>
+                <dd>@_lastResultRows.Value</dd>
+            }
         </dl>
     </aside>
 </div>
@@ -54,15 +73,20 @@
     private string _input = "";
     private bool _busy;
     private string _lastPipeline = "—";
-    private string _modelBadge = "";
+    private string _statsModelName = "";
     private long _lastLatencyMs;
+    private int? _lastTokensGenerated;
+    private double? _lastTokensPerSecond;
+    private int? _lastToolCallCount;
+    private bool? _lastIrFirstTry;
+    private int? _lastResultRows;
     private readonly List<(string Role, string Text)> _messages = [];
 
     // Component-level CTS cancelled when the circuit disposes (user closes tab)
     private readonly CancellationTokenSource _disposeCts = new();
 
     protected override void OnInitialized() =>
-        _modelBadge = OllamaOpts.Value.ChatModel;
+        _statsModelName = OllamaOpts.Value.ChatModel;
 
     private async Task OnKeyAsync(KeyboardEventArgs e)
     {
@@ -83,6 +107,13 @@
         var sb = new System.Text.StringBuilder();
         _messages.Add(("assistant", ""));
         var idx = _messages.Count - 1;
+
+        // Reset per-request stats
+        _lastTokensGenerated = null;
+        _lastTokensPerSecond = null;
+        _lastToolCallCount = null;
+        _lastIrFirstTry = null;
+        _lastResultRows = null;
 
         // Per-send CTS with 120-second hard timeout, cancelled on circuit dispose
         using var sendCts = CancellationTokenSource.CreateLinkedTokenSource(_disposeCts.Token);
@@ -126,6 +157,13 @@
                         _lastPipeline = dataLine["data: ".Length..];
                     eventHasData = false;
                 }
+                else if (line.StartsWith("event: stats", StringComparison.Ordinal))
+                {
+                    var dataLine = await reader.ReadLineAsync(sendCts.Token);
+                    if (dataLine?.StartsWith("data: ", StringComparison.Ordinal) == true)
+                        ParseStats(dataLine["data: ".Length..]);
+                    eventHasData = false;
+                }
                 else if (line.StartsWith("data: ", StringComparison.Ordinal))
                 {
                     var token = line["data: ".Length..];
@@ -155,6 +193,38 @@
             _lastLatencyMs = sw.ElapsedMilliseconds;
             _busy = false;
             await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ParseStats(string json)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("modelName", out var modelEl) && modelEl.ValueKind == System.Text.Json.JsonValueKind.String)
+                _statsModelName = modelEl.GetString() ?? _statsModelName;
+
+            if (root.TryGetProperty("tokensGenerated", out var tokEl) && tokEl.TryGetInt32(out var toks))
+                _lastTokensGenerated = toks;
+
+            if (root.TryGetProperty("tokensPerSecond", out var tpsEl) && tpsEl.TryGetDouble(out var tps))
+                _lastTokensPerSecond = tps;
+
+            if (root.TryGetProperty("toolCallCount", out var tcEl) && tcEl.TryGetInt32(out var tc))
+                _lastToolCallCount = tc;
+
+            if (root.TryGetProperty("irValidFirstTry", out var irEl) &&
+                (irEl.ValueKind == System.Text.Json.JsonValueKind.True || irEl.ValueKind == System.Text.Json.JsonValueKind.False))
+                _lastIrFirstTry = irEl.GetBoolean();
+
+            if (root.TryGetProperty("totalResultRows", out var rrEl) && rrEl.TryGetInt32(out var rr))
+                _lastResultRows = rr;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Chat] ParseStats failed: {ex.Message}");
         }
     }
 

@@ -118,7 +118,8 @@ public class DataPipelineTests
             new IrToDslCompiler(),
             new QuerySpecValidator(),
             Create(ragOpts ?? new RagOptions()),
-            NullLogger<DataPipeline>.Instance);
+            NullLogger<DataPipeline>.Instance,
+            Create(new OllamaOptions()));
     }
 
     // ── Tests ─────────────────────────────────────────────────────────────────
@@ -304,5 +305,21 @@ public class DataPipelineTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => pipeline.ExecuteAsync("show me trades", response, cts.Token));
+    }
+
+    [Fact]
+    public async Task Given_ValidIrOnFirstAttempt_When_ExecuteAsync_Then_StatsContainsIrFirstTryTrue()
+    {
+        var chatMock = BuildChatMock(ValidTradeSpecJson);
+        var pipeline = BuildPipeline(chatMock.Object, BuildInMemoryEs(DualPurposeEmptyJson));
+        var (response, body) = BuildResponse();
+
+        await pipeline.ExecuteAsync("show me trades", response, CancellationToken.None);
+
+        var output = ReadBody(body);
+        Assert.Contains("event: stats", output);
+        Assert.Contains("\"irValidFirstTry\":true", output);
+        Assert.Contains("\"pipeline\"", output);
+        Assert.Contains("\"latencyMs\"", output);
     }
 }

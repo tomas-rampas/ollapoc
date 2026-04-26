@@ -99,7 +99,8 @@ public class MetadataPipelineTests
             BuildCatalogTools(),
             chatMock.Object,
             Create(ragOpts ?? new RagOptions()),
-            NullLogger<MetadataPipeline>.Instance);
+            NullLogger<MetadataPipeline>.Instance,
+            Create(new OllamaOptions()));
 
         return (pipeline, chatMock);
     }
@@ -205,7 +206,8 @@ public class MetadataPipelineTests
             BuildCatalogTools(),
             chatMock.Object,
             Create(new RagOptions { MetadataMaxTurns = 1 }),
-            NullLogger<MetadataPipeline>.Instance);
+            NullLogger<MetadataPipeline>.Instance,
+            Create(new OllamaOptions()));
 
         var (response, body) = BuildResponse();
 
@@ -246,7 +248,8 @@ public class MetadataPipelineTests
             BuildCatalogTools(),
             chatMock.Object,
             Create(new RagOptions()),
-            NullLogger<MetadataPipeline>.Instance);
+            NullLogger<MetadataPipeline>.Instance,
+            Create(new OllamaOptions()));
 
         var (response, body) = BuildResponse();
         await pipeline.ExecuteAsync("any query", response, CancellationToken.None);
@@ -281,7 +284,8 @@ public class MetadataPipelineTests
             BuildCatalogTools(),
             chatMock.Object,
             Create(new RagOptions()),
-            NullLogger<MetadataPipeline>.Instance);
+            NullLogger<MetadataPipeline>.Instance,
+            Create(new OllamaOptions()));
 
         var (response, body) = BuildResponse();
         await pipeline.ExecuteAsync(testQuery, response, CancellationToken.None);
@@ -348,5 +352,24 @@ public class MetadataPipelineTests
         Assert.True(dataIdx >= 0, "answer data frame not found");
         Assert.True(eventIdx >= 0, "tools_used event not found");
         Assert.True(dataIdx < eventIdx, "answer data must appear before tools_used event");
+    }
+
+    [Fact]
+    public async Task Given_SuccessfulExecution_When_ExecuteAsync_Then_EmitsStatsEventAfterToolsUsed()
+    {
+        var (pipeline, _) = BuildPipeline(
+            new ChatResponse(new ChatMessage(ChatRole.Assistant, "Done.")));
+        var (response, body) = BuildResponse();
+
+        await pipeline.ExecuteAsync("test", response, CancellationToken.None);
+
+        var output = ReadBody(body);
+        var toolsIdx = output.IndexOf("event: tools_used", StringComparison.Ordinal);
+        var statsIdx = output.IndexOf("event: stats", StringComparison.Ordinal);
+
+        Assert.True(statsIdx >= 0, "stats event not found");
+        Assert.True(toolsIdx < statsIdx, "tools_used event must appear before stats event");
+        Assert.Contains("\"pipeline\"", output);
+        Assert.Contains("\"latencyMs\"", output);
     }
 }
