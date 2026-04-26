@@ -13,7 +13,7 @@ public sealed class IntentRouter
     // (e.g. "What are the critical data elements?" should route to Metadata, not Docs)
     private static readonly (Regex Pattern, PipelineKind Kind)[] Rules =
     [
-        (new Regex(@"\b(attributes?|fields?|columns?|schema|cde|critical data elements?|entity|entities|metadata)\b",
+        (new Regex(@"\b(rules?|validations?|constraints?|mandatory\s+(field|attribute|rule)|data\s+owner|governance\s+owner|attributes?|fields?|columns?|schema|cde|critical data elements?|entity|entities|metadata)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled), PipelineKind.Metadata),
         (new Regex(@"\b(give me all|list all|show me|find all|records?|count of|fetch|get all|top \d+)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled), PipelineKind.Data),

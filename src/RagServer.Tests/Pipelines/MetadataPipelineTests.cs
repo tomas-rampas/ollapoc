@@ -52,6 +52,7 @@ public class MetadataPipelineTests
             mockEmbeddings.Object,
             esClient,
             new NullMongoExtensionRepository(),
+            new NullBusinessRulesRepository(),
             Create(new RagOptions()),
             NullLogger<CatalogTools>.Instance);
     }

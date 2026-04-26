@@ -45,8 +45,9 @@ public class CatalogToolsTests
         var embMock = embeddingMock ?? BuildEmbeddingMock();
         var es = new ElasticsearchClient(new ElasticsearchClientSettings(new Uri("http://localhost:19999")));
         var mongoRepo = mongo ?? new NullMongoExtensionRepository();
+        var rulesRepo = new NullBusinessRulesRepository();
         var opts = Create(new RagOptions());
-        return new CatalogTools(db, embMock.Object, es, mongoRepo, opts,
+        return new CatalogTools(db, embMock.Object, es, mongoRepo, rulesRepo, opts,
             NullLogger<CatalogTools>.Instance);
     }
 
@@ -108,7 +109,7 @@ public class CatalogToolsTests
         var tools = BuildTools(db);
 
         // When fetching attributes for Trade
-        var result = await tools.GetEntityAttributesAsync("Trade", CancellationToken.None);
+        var result = await tools.GetEntityAttributesAsync("Trade", ct: CancellationToken.None);
 
         // Then 7 attributes are returned
         Assert.Equal(7, result.Count);
@@ -122,7 +123,7 @@ public class CatalogToolsTests
         var tools = BuildTools(db);
 
         // When fetching attributes for Trade
-        var result = await tools.GetEntityAttributesAsync("Trade", CancellationToken.None);
+        var result = await tools.GetEntityAttributesAsync("Trade", ct: CancellationToken.None);
 
         // Then the known attribute names are present
         var names = result.Select(a => a.Name).ToHashSet();
@@ -143,7 +144,7 @@ public class CatalogToolsTests
         var tools = BuildTools(db);
 
         // When fetching attributes for a non-existent entity
-        var result = await tools.GetEntityAttributesAsync("NonExistentEntity", CancellationToken.None);
+        var result = await tools.GetEntityAttributesAsync("NonExistentEntity", ct: CancellationToken.None);
 
         // Then an empty list is returned
         Assert.Empty(result);
@@ -157,7 +158,7 @@ public class CatalogToolsTests
         var tools = BuildTools(db);
 
         // When fetching attributes for Settlement
-        var result = await tools.GetEntityAttributesAsync("Settlement", CancellationToken.None);
+        var result = await tools.GetEntityAttributesAsync("Settlement", ct: CancellationToken.None);
 
         // Then exactly 3 attributes are returned
         Assert.Equal(3, result.Count);
@@ -171,7 +172,7 @@ public class CatalogToolsTests
         var tools = BuildTools(db);
 
         // When fetching Settlement attributes
-        var result = await tools.GetEntityAttributesAsync("Settlement", CancellationToken.None);
+        var result = await tools.GetEntityAttributesAsync("Settlement", ct: CancellationToken.None);
 
         // Then settlement-specific attribute names are present
         var names = result.Select(a => a.Name).ToHashSet();
@@ -188,7 +189,7 @@ public class CatalogToolsTests
         var tools = BuildTools(db);
 
         // When fetching Trade attributes
-        var result = await tools.GetEntityAttributesAsync("Trade", CancellationToken.None);
+        var result = await tools.GetEntityAttributesAsync("Trade", ct: CancellationToken.None);
 
         // Then TradeDate has datatype datetime and IsNullable = false
         var tradeDate = result.Single(a => a.Name == "TradeDate");
@@ -270,21 +271,21 @@ public class CatalogToolsTests
     // ── ListCDEAsync ──────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task ListCDE_GivenNullFilter_ReturnsAllFiveCDEs()
+    public async Task ListCDE_GivenNullFilter_ReturnsAllTwentyCDEs()
     {
-        // Given the seeded database has 5 CDEs total (4 Trade + 1 Settlement)
+        // Given the seeded database has 20 CDEs total (5 original + 15 new Sprint 6 CDEs)
         using var db = BuildDb();
         var tools = BuildTools(db);
 
         // When listing all CDEs with no filter
         var result = await tools.ListCDEAsync(null, CancellationToken.None);
 
-        // Then all 5 CDEs are returned
-        Assert.Equal(5, result.Count);
+        // Then all 20 CDEs are returned
+        Assert.Equal(20, result.Count);
     }
 
     [Fact]
-    public async Task ListCDE_GivenEmptyStringFilter_ReturnsAllFiveCDEs()
+    public async Task ListCDE_GivenEmptyStringFilter_ReturnsAllTwentyCDEs()
     {
         // Given the seeded database
         using var db = BuildDb();
@@ -293,8 +294,8 @@ public class CatalogToolsTests
         // When listing with an empty string (treated as no filter)
         var result = await tools.ListCDEAsync("", CancellationToken.None);
 
-        // Then all 5 CDEs are returned (whitespace guard in implementation)
-        Assert.Equal(5, result.Count);
+        // Then all 20 CDEs are returned (whitespace guard in implementation)
+        Assert.Equal(20, result.Count);
     }
 
     [Fact]
@@ -411,21 +412,22 @@ public class CatalogToolsTests
     }
 
     [Fact]
-    public async Task GetEntityRelationships_GivenCounterparty_ReturnsOneRelationship()
+    public async Task GetEntityRelationships_GivenCounterparty_ReturnsThreeRelationships()
     {
-        // Given the seeded database has 1 relationship where Counterparty is the target
-        // (Trade → hasCounterparty → Counterparty)
+        // Given the seeded database: Trade→hasCounterparty→Counterparty,
+        // Counterparty→hasAccount→ClientAccount, SettlementInstruction→issuedForCounterparty→Counterparty
         using var db = BuildDb();
         var tools = BuildTools(db);
 
-        // When fetching relationships for Counterparty
+        // When fetching relationships for Counterparty (source + target)
         var result = await tools.GetEntityRelationshipsAsync("Counterparty", CancellationToken.None);
 
-        // Then exactly 1 relationship is returned
-        Assert.Single(result);
-        Assert.Equal("Trade",            result[0].SourceEntity);
-        Assert.Equal("Counterparty",     result[0].TargetEntity);
-        Assert.Equal("hasCounterparty",  result[0].RelationshipType);
+        // Then 3 relationships are returned
+        Assert.Equal(3, result.Count);
+        var types = result.Select(r => r.RelationshipType).ToHashSet();
+        Assert.Contains("hasCounterparty",       types);
+        Assert.Contains("hasAccount",            types);
+        Assert.Contains("issuedForCounterparty", types);
     }
 
     [Fact]

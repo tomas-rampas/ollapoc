@@ -82,8 +82,9 @@ var mongoConnStr = builder.Configuration["MONGO_CONNECTION_STRING"];
 builder.Services.Configure<MongoOptions>(o =>
 {
     o.ConnectionString        = mongoConnStr;
-    o.Database                = builder.Configuration["MONGO_DATABASE"]                ?? o.Database;
-    o.ExtensionsCollection    = builder.Configuration["MONGO_EXTENSIONS_COLLECTION"]   ?? o.ExtensionsCollection;
+    o.Database                = builder.Configuration["MONGO_DATABASE_NAME"]          ?? o.Database;
+    o.ExtensionsCollection    = builder.Configuration["MONGO_EXTENSIONS_COLLECTION"] ?? o.ExtensionsCollection;
+    o.RulesCollection         = builder.Configuration["MONGO_RULES_COLLECTION"]      ?? o.RulesCollection;
 });
 
 builder.Services.Configure<ConfluenceOptions>(builder.Configuration.GetSection("Confluence"));
@@ -205,6 +206,16 @@ else
         return new MongoExtensionRepository(opts);
     });
 
+// ── MongoDB business rules (optional — graceful degradation when MONGO_CONNECTION_STRING is absent) ─
+if (string.IsNullOrWhiteSpace(mongoConnStr))
+    builder.Services.AddSingleton<IBusinessRulesRepository, NullBusinessRulesRepository>();
+else
+    builder.Services.AddSingleton<IBusinessRulesRepository>(sp =>
+    {
+        var opts = sp.GetRequiredService<IOptions<MongoOptions>>().Value;
+        return new MongoBusinessRulesRepository(opts);
+    });
+
 // ── Metadata pipeline (UC-2) ─────────────────────────────────────────────────────────────
 // CatalogTools is Scoped because it captures CatalogDbContext (Scoped).
 // MetadataPipeline is Scoped for the same reason.
@@ -245,6 +256,9 @@ builder.Services.AddSingleton<DocsPipeline>();
 // ── Index bootstrap ───────────────────────────────────────────────────────────
 builder.Services.AddHostedService<IndexBootstrapper>();
 builder.Services.AddHostedService<CatalogIndexBootstrapper>();
+
+// ── Catalog schema bootstrap (creates SQL Server schema on first run) ──────────
+builder.Services.AddHostedService<CatalogSchemaBootstrapper>();
 
 // ── Blazor / Razor Components ─────────────────────────────────────────────────
 builder.Services.AddRazorComponents()

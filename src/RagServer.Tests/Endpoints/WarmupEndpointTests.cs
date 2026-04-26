@@ -22,7 +22,7 @@ file sealed class FakeWebHostEnvironment : IWebHostEnvironment
 public class WarmupEndpointTests
 {
     /// <summary>
-    /// Creates a temp wwwroot directory with the production DemoQueries.json content (9 queries),
+    /// Creates a temp wwwroot directory with the production DemoQueries.json content (18 queries),
     /// constructs a <see cref="DemoQueriesService"/>, and returns it together with the temp path.
     /// </summary>
     private static (DemoQueriesService Svc, string TempDir) BuildServiceWithRealJson()
@@ -32,15 +32,24 @@ public class WarmupEndpointTests
 
         var json = """
             [
-              { "text": "What is the settlement fail reason for STP trades?",           "pipeline": "Docs" },
-              { "text": "How does the reconciliation process work?",                     "pipeline": "Docs" },
-              { "text": "What counterparty data is required for trade booking?",         "pipeline": "Docs" },
-              { "text": "What attributes does the Trade entity have?",                   "pipeline": "Metadata" },
-              { "text": "Show me all critical data elements for Settlement",             "pipeline": "Metadata" },
-              { "text": "What relationships does Counterparty have?",                    "pipeline": "Metadata" },
+              { "text": "What is a counterparty in financial services?", "pipeline": "Docs" },
+              { "text": "How does KYC onboarding work?", "pipeline": "Docs" },
+              { "text": "What is a DVP settlement instruction?", "pipeline": "Docs" },
+              { "text": "What are trading books and banking books?", "pipeline": "Docs" },
+              { "text": "How is FATCA status determined for a counterparty?", "pipeline": "Docs" },
+              { "text": "What is a Critical Data Element?", "pipeline": "Docs" },
+              { "text": "What are the mandatory attributes for Book?", "pipeline": "Metadata" },
+              { "text": "Who is the data owner of Legal Name for Client Account?", "pipeline": "Metadata" },
+              { "text": "What rules are defined for Counterparty?", "pipeline": "Metadata" },
+              { "text": "What are the mandatory rules for Settlement Instruction?", "pipeline": "Metadata" },
+              { "text": "What critical data elements does Currency have?", "pipeline": "Metadata" },
+              { "text": "What relationships does Counterparty have?", "pipeline": "Metadata" },
               { "text": "Show me the top 10 trades with status FAILED sorted by amount descending", "pipeline": "Data" },
-              { "text": "How many trades were settled last month?",                      "pipeline": "Data" },
-              { "text": "List all counterparties with more than 5 active trades",        "pipeline": "Data" }
+              { "text": "How many trades were settled last month?", "pipeline": "Data" },
+              { "text": "List all counterparties with more than 5 active trades", "pipeline": "Data" },
+              { "text": "What were the total notional amounts by currency last quarter?", "pipeline": "Data" },
+              { "text": "Show me all settlement failures in the last 7 days", "pipeline": "Data" },
+              { "text": "Find all open trades where notional exceeds 1 million", "pipeline": "Data" }
             ]
             """;
         File.WriteAllText(Path.Combine(tempDir, "DemoQueries.json"), json);
@@ -50,7 +59,7 @@ public class WarmupEndpointTests
     }
 
     [Fact]
-    public void Given_DemoQueries_When_GetQueries_Called_Then_ReturnsAllNineQueries()
+    public void Given_DemoQueries_When_GetQueries_Called_Then_ReturnsAllEighteenQueries()
     {
         // Arrange
         var (svc, tempDir) = BuildServiceWithRealJson();
@@ -60,15 +69,15 @@ public class WarmupEndpointTests
             var queries = svc.GetQueries();
 
             // Assert
-            Assert.Equal(9, queries.Count);
+            Assert.Equal(18, queries.Count);
 
-            var docCount      = queries.Count(q => q.Pipeline == "Docs");
-            var metaCount     = queries.Count(q => q.Pipeline == "Metadata");
-            var dataCount     = queries.Count(q => q.Pipeline == "Data");
+            var docCount  = queries.Count(q => q.Pipeline == "Docs");
+            var metaCount = queries.Count(q => q.Pipeline == "Metadata");
+            var dataCount = queries.Count(q => q.Pipeline == "Data");
 
-            Assert.Equal(3, docCount);
-            Assert.Equal(3, metaCount);
-            Assert.Equal(3, dataCount);
+            Assert.Equal(6, docCount);
+            Assert.Equal(6, metaCount);
+            Assert.Equal(6, dataCount);
         }
         finally
         {
@@ -94,7 +103,7 @@ public class WarmupEndpointTests
                 results.Add(new { query = q.Text, pipeline = q.Pipeline });
 
             // Assert
-            Assert.Equal(0, results.Count);
+            Assert.Empty(results);
         }
         finally
         {

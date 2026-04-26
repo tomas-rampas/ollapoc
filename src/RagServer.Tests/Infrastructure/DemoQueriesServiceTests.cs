@@ -23,7 +23,7 @@ file sealed class FakeWebHostEnvironment : IWebHostEnvironment
 public class DemoQueriesServiceTests
 {
     [Fact]
-    public void Given_ValidJson_When_GetQueries_Then_Returns9Queries()
+    public void Given_ValidJson_When_GetQueries_Then_Returns18Queries()
     {
         // Arrange
         var tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
@@ -32,15 +32,24 @@ public class DemoQueriesServiceTests
         {
             var json = """
                 [
-                  { "text": "Query 1", "pipeline": "Docs" },
-                  { "text": "Query 2", "pipeline": "Docs" },
-                  { "text": "Query 3", "pipeline": "Docs" },
-                  { "text": "Query 4", "pipeline": "Metadata" },
-                  { "text": "Query 5", "pipeline": "Metadata" },
-                  { "text": "Query 6", "pipeline": "Metadata" },
-                  { "text": "Query 7", "pipeline": "Data" },
-                  { "text": "Query 8", "pipeline": "Data" },
-                  { "text": "Query 9", "pipeline": "Data" }
+                  { "text": "Query 1",  "pipeline": "Docs" },
+                  { "text": "Query 2",  "pipeline": "Docs" },
+                  { "text": "Query 3",  "pipeline": "Docs" },
+                  { "text": "Query 4",  "pipeline": "Docs" },
+                  { "text": "Query 5",  "pipeline": "Docs" },
+                  { "text": "Query 6",  "pipeline": "Docs" },
+                  { "text": "Query 7",  "pipeline": "Metadata" },
+                  { "text": "Query 8",  "pipeline": "Metadata" },
+                  { "text": "Query 9",  "pipeline": "Metadata" },
+                  { "text": "Query 10", "pipeline": "Metadata" },
+                  { "text": "Query 11", "pipeline": "Metadata" },
+                  { "text": "Query 12", "pipeline": "Metadata" },
+                  { "text": "Query 13", "pipeline": "Data" },
+                  { "text": "Query 14", "pipeline": "Data" },
+                  { "text": "Query 15", "pipeline": "Data" },
+                  { "text": "Query 16", "pipeline": "Data" },
+                  { "text": "Query 17", "pipeline": "Data" },
+                  { "text": "Query 18", "pipeline": "Data" }
                 ]
                 """;
             File.WriteAllText(Path.Combine(tempDir, "DemoQueries.json"), json);
@@ -52,11 +61,11 @@ public class DemoQueriesServiceTests
             var queries = svc.GetQueries();
 
             // Assert
-            Assert.Equal(9, queries.Count);
+            Assert.Equal(18, queries.Count);
             Assert.Equal("Query 1", queries[0].Text);
             Assert.Equal("Docs", queries[0].Pipeline);
-            Assert.Equal("Query 9", queries[8].Text);
-            Assert.Equal("Data", queries[8].Pipeline);
+            Assert.Equal("Query 18", queries[17].Text);
+            Assert.Equal("Data", queries[17].Pipeline);
         }
         finally
         {

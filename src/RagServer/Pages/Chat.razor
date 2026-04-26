@@ -22,7 +22,7 @@
                         <span class="pipeline-badge badge-@m.Pipeline.ToLower()">@m.Pipeline</span>
                     }
                     <span class="text @(m.IsError ? "error-text" : "")">@m.Text</span>
-                    @if (DemoOpts.Value.DemoDebugPanel && m.Citations?.Count > 0)
+                    @if (m.Citations?.Count > 0)
                     {
                         <div class="citations">
                             @foreach (var c in m.Citations)
