@@ -24,6 +24,10 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="Polly" Version="8.5.*" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="9.*" />
+    <PackageReference Include="HtmlAgilityPack" Version="1.11.*" />
+    <PackageReference Include="NCrontab" Version="3.3.*" />
   </ItemGroup>
 
 </Project>

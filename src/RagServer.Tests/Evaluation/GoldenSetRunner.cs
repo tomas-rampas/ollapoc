@@ -20,11 +20,11 @@ public class GoldenSetRunner
     }
 
     [Fact]
-    public async Task SeedData_FiveEvalQueriesPresent()
+    public async Task SeedData_ThirtyEvalQueriesPresent()
     {
         await using var db = BuildInMemoryDb();
         var count = await db.EvalQueries.CountAsync();
-        Assert.Equal(5, count);
+        Assert.Equal(30, count);
     }
 
     [Fact]

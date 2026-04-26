@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using RagServer.Infrastructure;
 using RagServer.Options;
+using RagServer.Pipelines;
 using RagServer.Router;
 using RagServer.Telemetry;
 
@@ -18,6 +19,7 @@ public static class ChatEndpoint
         [FromKeyedServices("chat")] IChatClient chatClient,
         IntentRouter router,
         LlmRequestQueue queue,
+        DocsPipeline docsPipeline,
         IOptions<RagOptions> ragOpts)
     {
         // Validate input before committing to any response
@@ -54,19 +56,28 @@ public static class ChatEndpoint
                 await ctx.Response.WriteAsync($"event: pipeline\ndata: {pipeline}\n\n", ct);
                 await ctx.Response.Body.FlushAsync(ct);
 
-                var opts = new ChatOptions { MaxOutputTokens = ragOpts.Value.MaxOutputTokens };
-                await foreach (var update in chatClient.GetStreamingResponseAsync(req.Message, opts, ct))
+                if (pipeline == PipelineKind.Docs)
                 {
-                    if (update.Text is not null)
-                    {
-                        // Escape embedded newlines so they don't break the SSE frame boundary
-                        var safeText = EscapeSse(update.Text);
-                        await ctx.Response.WriteAsync($"data: {safeText}\n\n", ct);
-                        await ctx.Response.Body.FlushAsync(ct);
-                    }
+                    await docsPipeline.ExecuteAsync(req.Message, ctx.Response, ct);
+                    await ctx.Response.WriteAsync("data: [DONE]\n\n", ct);
+                    await ctx.Response.Body.FlushAsync(ct);
                 }
-                await ctx.Response.WriteAsync("data: [DONE]\n\n", ct);
-                await ctx.Response.Body.FlushAsync(ct);
+                else
+                {
+                    var opts = new ChatOptions { MaxOutputTokens = ragOpts.Value.MaxOutputTokens };
+                    await foreach (var update in chatClient.GetStreamingResponseAsync(req.Message, opts, ct))
+                    {
+                        if (update.Text is not null)
+                        {
+                            // Escape embedded newlines so they don't break the SSE frame boundary
+                            var safeText = EscapeSse(update.Text);
+                            await ctx.Response.WriteAsync($"data: {safeText}\n\n", ct);
+                            await ctx.Response.Body.FlushAsync(ct);
+                        }
+                    }
+                    await ctx.Response.WriteAsync("data: [DONE]\n\n", ct);
+                    await ctx.Response.Body.FlushAsync(ct);
+                }
                 return (object?)null;
             }, ctx.RequestAborted);
         }

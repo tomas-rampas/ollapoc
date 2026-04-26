@@ -11,7 +11,9 @@ using OpenTelemetry.Trace;
 using RagServer.Endpoints;
 using RagServer.Infrastructure;
 using RagServer.Infrastructure.Catalog;
+using RagServer.Ingestion;
 using RagServer.Options;
+using RagServer.Pipelines;
 using RagServer.Router;
 using RagServer.Telemetry;
 
@@ -70,6 +72,10 @@ builder.Services.Configure<SqlServerOptions>(o =>
     o.ConnectionString = builder.Configuration["SQL_CONNECTION_STRING"];
 });
 
+builder.Services.Configure<ConfluenceOptions>(builder.Configuration.GetSection("Confluence"));
+builder.Services.Configure<JiraOptions>(builder.Configuration.GetSection("Jira"));
+builder.Services.Configure<IngestionOptions>(builder.Configuration.GetSection("Ingestion"));
+
 // ── Ollama AI Clients (keyed by role) ─────────────────────────────────────────
 // OllamaApiClient implements IChatClient and IEmbeddingGenerator<string, Embedding<float>> directly.
 // Resolved via IOptions to keep a single source of truth for connection strings.
@@ -85,6 +91,9 @@ builder.Services.AddKeyedSingleton<IEmbeddingGenerator<string, Embedding<float>>
     return (IEmbeddingGenerator<string, Embedding<float>>)
         new OllamaApiClient(new Uri(opts.BaseUrl), opts.EmbeddingModel);
 });
+
+// Unkeyed IEmbeddingGenerator resolves to EmbeddingCache — wraps the keyed "embeddings" with LRU
+builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>, EmbeddingCache>();
 
 // ── Elasticsearch ─────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<ElasticsearchClient>(sp =>
@@ -149,6 +158,22 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<LlmRequestQueue>()
 // Singleton so the in-process classification cache persists across requests
 builder.Services.AddSingleton<IntentRouter>();
 
+// ── Ingestion ─────────────────────────────────────────────────────────────────
+builder.Services.AddSingleton<TextChunker>();
+builder.Services.AddSingleton<ConfluenceContentNormaliser>();
+builder.Services.AddSingleton<AdfNormaliser>();
+builder.Services.AddHttpClient<IConfluenceCrawler, ConfluenceCrawler>();
+builder.Services.AddHttpClient<IJiraCrawler, JiraCrawler>();
+builder.Services.AddSingleton<DocumentEmbedder>();
+builder.Services.AddHostedService<IngestionScheduler>();
+
+// ── Docs pipeline ─────────────────────────────────────────────────────────────
+builder.Services.AddSingleton<DocsRetriever>();
+builder.Services.AddSingleton<DocsPipeline>();
+
+// ── Index bootstrap ───────────────────────────────────────────────────────────
+builder.Services.AddHostedService<IndexBootstrapper>();
+
 // ── Blazor / Razor Components ─────────────────────────────────────────────────
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -175,6 +200,8 @@ app.MapHealthEndpoints();
 
 var chatRoute = app.MapPost("/api/chat", ChatEndpoint.Handle);
 if (!skipAuth) chatRoute.RequireAuthorization();
+
+app.MapAdminEndpoints();
 
 app.MapRazorComponents<RagServer.Components.App>()
     .AddInteractiveServerRenderMode();
