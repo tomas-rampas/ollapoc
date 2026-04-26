@@ -7,4 +7,6 @@ public sealed class RagOptions
     public int MaxOutputTokens { get; set; } = 512;
     public int DocsTopK { get; set; } = 5;
     public int RrfRankConstant { get; set; } = 60;
+    public int MetadataMaxTurns { get; set; } = 10;
+    public int CatalogTermsTopK { get; set; } = 3;
 }

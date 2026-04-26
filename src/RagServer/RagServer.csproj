@@ -28,6 +28,7 @@
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="9.*" />
     <PackageReference Include="HtmlAgilityPack" Version="1.11.*" />
     <PackageReference Include="NCrontab" Version="3.3.*" />
+    <PackageReference Include="MongoDB.Driver" Version="3.*" />
   </ItemGroup>
 
 </Project>

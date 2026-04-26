@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Version** | 0.5 |
-| **Status** | Proposal — for review |
+| **Version** | 0.6 |
+| **Status** | In progress — Sprint 2 complete |
 | **Scope** | Proof of Concept |
 | **Date** | April 2026 |
-| **Changes from 0.4** | Elasticsearch upgraded to 9.x; NVIDIA Container Toolkit confirmed pre-installed on both dev laptops; Phase 0 simplified accordingly |
+| **Changes from 0.5** | Sprint 2 (UC-2 Metadata Pipeline) implemented: 5 catalog tools (`ResolveEntity`, `GetEntityAttributes`, `GetEntityExtensions`, `ListCDE`, `GetEntityRelationships`), M.E.AI function-calling loop, MongoDB graceful degradation, `catalog_terms` ES index bootstrap, 120 tests green |
 
 ---
 

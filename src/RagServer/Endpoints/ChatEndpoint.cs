@@ -20,6 +20,7 @@ public static class ChatEndpoint
         IntentRouter router,
         LlmRequestQueue queue,
         DocsPipeline docsPipeline,
+        MetadataPipeline metadataPipeline,
         IOptions<RagOptions> ragOpts)
     {
         // Validate input before committing to any response
@@ -59,11 +60,14 @@ public static class ChatEndpoint
                 if (pipeline == PipelineKind.Docs)
                 {
                     await docsPipeline.ExecuteAsync(req.Message, ctx.Response, ct);
-                    await ctx.Response.WriteAsync("data: [DONE]\n\n", ct);
-                    await ctx.Response.Body.FlushAsync(ct);
+                }
+                else if (pipeline == PipelineKind.Metadata)
+                {
+                    await metadataPipeline.ExecuteAsync(req.Message, ctx.Response, ct);
                 }
                 else
                 {
+                    // UC-3 Data pipeline placeholder — raw LLM stream
                     var opts = new ChatOptions { MaxOutputTokens = ragOpts.Value.MaxOutputTokens };
                     await foreach (var update in chatClient.GetStreamingResponseAsync(req.Message, opts, ct))
                     {
@@ -75,9 +79,9 @@ public static class ChatEndpoint
                             await ctx.Response.Body.FlushAsync(ct);
                         }
                     }
-                    await ctx.Response.WriteAsync("data: [DONE]\n\n", ct);
-                    await ctx.Response.Body.FlushAsync(ct);
                 }
+                await ctx.Response.WriteAsync("data: [DONE]\n\n", ct);
+                await ctx.Response.Body.FlushAsync(ct);
                 return (object?)null;
             }, ctx.RequestAborted);
         }
@@ -91,7 +95,7 @@ public static class ChatEndpoint
         {
             // Client disconnected — stream is already closed; nothing to do
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             if (!ctx.Response.HasStarted)
             {
@@ -101,8 +105,7 @@ public static class ChatEndpoint
             else
             {
                 // Headers already sent; signal error via SSE then close
-                var safeMsg = EscapeSse(ex.Message);
-                await ctx.Response.WriteAsync($"event: error\ndata: {safeMsg}\n\n");
+                await ctx.Response.WriteAsync($"event: error\ndata: internal_error\n\n");
                 await ctx.Response.WriteAsync("data: [DONE]\n\n");
                 await ctx.Response.Body.FlushAsync();
             }

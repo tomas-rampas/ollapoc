@@ -1,0 +1,148 @@
+using System.Diagnostics;
+using System.Text.Json;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using RagServer.Options;
+using RagServer.Telemetry;
+using RagServer.Tools;
+
+namespace RagServer.Pipelines;
+
+/// <summary>
+/// UC-2 Metadata pipeline: M.E.AI function-calling loop over CatalogTools.
+/// Registers all five catalog tools, drives the model through up to MetadataMaxTurns
+/// turns, dispatches each FunctionCallContent to the corresponding AIFunction, and
+/// streams the final assistant answer as SSE data events.
+/// </summary>
+public sealed class MetadataPipeline(
+    CatalogTools catalogTools,
+    [FromKeyedServices("chat")] IChatClient chatClient,
+    IOptions<RagOptions> opts,
+    ILogger<MetadataPipeline> logger)
+{
+    private const string SystemPrompt =
+        "You are a catalog assistant. Use the provided tools to look up entity information. " +
+        "Answer ONLY from tool results. Do not invent information.";
+
+    public async Task ExecuteAsync(string query, HttpResponse response, CancellationToken ct)
+    {
+        using var activity = RagActivitySource.Source.StartActivity("rag.metadata_pipeline");
+
+        // Register all 5 catalog tools via AIFunctionFactory.Create(Delegate)
+        AIFunction[] aiFunctions =
+        [
+            AIFunctionFactory.Create(catalogTools.ResolveEntityAsync),
+            AIFunctionFactory.Create(catalogTools.GetEntityAttributesAsync),
+            AIFunctionFactory.Create(catalogTools.GetEntityExtensionsAsync),
+            AIFunctionFactory.Create(catalogTools.ListCDEAsync),
+            AIFunctionFactory.Create(catalogTools.GetEntityRelationshipsAsync),
+        ];
+
+        // Build a lookup by function name for fast dispatch
+        var functionMap = aiFunctions.ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
+
+        var chatOpts = new ChatOptions
+        {
+            Tools = [.. aiFunctions.Cast<AITool>()],
+            ToolMode = ChatToolMode.Auto,
+            MaxOutputTokens = opts.Value.MaxOutputTokens
+        };
+
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.System, SystemPrompt),
+            new(ChatRole.User, query)
+        };
+
+        var toolsUsed = new List<string>();
+        var maxTurns = opts.Value.MetadataMaxTurns;
+
+        for (var turn = 0; turn < maxTurns; turn++)
+        {
+            var chatResponse = await chatClient.GetResponseAsync(messages, chatOpts, ct);
+            messages.AddRange(chatResponse.Messages);
+
+            // Collect function call requests from this response turn
+            var calls = chatResponse.Messages
+                .SelectMany(m => m.Contents.OfType<FunctionCallContent>())
+                .Where(c => !c.InformationalOnly)
+                .ToList();
+
+            if (calls.Count == 0)
+                break; // No more tool calls — model produced a final answer
+
+            // Dispatch each tool call and append results as a Tool role message
+            foreach (var call in calls)
+            {
+                toolsUsed.Add(call.Name);
+
+                object? result;
+                if (functionMap.TryGetValue(call.Name, out var aiFunc))
+                {
+                    var args = call.Arguments is not null
+                        ? new AIFunctionArguments(call.Arguments)
+                        : new AIFunctionArguments();
+                    try
+                    {
+                        result = await aiFunc.InvokeAsync(args, ct);
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Tool '{Name}' threw during dispatch", call.Name);
+                        result = new { error = ex.Message };
+                    }
+                }
+                else
+                {
+                    logger.LogWarning("Model requested unknown tool '{Name}'", call.Name);
+                    result = new { error = $"Unknown tool '{call.Name}'. Available: {string.Join(", ", functionMap.Keys)}" };
+                }
+
+                messages.Add(new ChatMessage(ChatRole.Tool,
+                    [new FunctionResultContent(call.CallId, result)]));
+            }
+        }
+
+        activity?.SetTag("rag.tool_calls_count", toolsUsed.Count);
+
+        // Stream the final answer: last assistant message that contains no function calls
+        var finalAnswer = messages
+            .LastOrDefault(m => m.Role == ChatRole.Assistant &&
+                                !m.Contents.Any(c => c is FunctionCallContent));
+
+        if (finalAnswer is not null)
+        {
+            foreach (var content in finalAnswer.Contents.OfType<TextContent>())
+            {
+                var text = content.Text;
+                if (!string.IsNullOrEmpty(text))
+                {
+                    await response.WriteAsync($"data: {EscapeSse(text)}\n\n", ct);
+                    await response.Body.FlushAsync(ct);
+                }
+            }
+        }
+        else
+        {
+            activity?.SetTag("rag.metadata.no_final_answer", true);
+            const string fallback = "I could not produce a final answer within the allowed tool-call limit.";
+            await response.WriteAsync($"data: {fallback}\n\n", ct);
+            await response.Body.FlushAsync(ct);
+        }
+
+        // Always emit the tools_used metadata event
+        var toolsJson = JsonSerializer.Serialize(toolsUsed.Distinct().ToList());
+        await response.WriteAsync($"event: tools_used\ndata: {toolsJson}\n\n", ct);
+        await response.Body.FlushAsync(ct);
+    }
+
+    private static string EscapeSse(string text)
+    {
+        // Normalise all line endings to LF, then encode for SSE multi-line data
+        text = text.Replace("\r\n", "\n").Replace("\r", "\n");
+        return text.Replace("\n", "\ndata: ");
+    }
+}

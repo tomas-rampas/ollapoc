@@ -16,6 +16,7 @@ using RagServer.Options;
 using RagServer.Pipelines;
 using RagServer.Router;
 using RagServer.Telemetry;
+using RagServer.Tools;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -65,11 +66,21 @@ builder.Services.Configure<RagOptions>(o =>
     if (int.TryParse(builder.Configuration["RAG_QUEUE_MAX_DEPTH"],         out var depth)) o.QueueMaxDepth    = depth;
     if (int.TryParse(builder.Configuration["RAG_EMBEDDING_CACHE_SIZE"],    out var cs))    o.EmbeddingCacheSize = cs;
     if (int.TryParse(builder.Configuration["RAG_CHAT_MAX_OUTPUT_TOKENS"],  out var mot))   o.MaxOutputTokens  = mot;
+    if (int.TryParse(builder.Configuration["RAG_METADATA_MAX_TURNS"],      out var mmt))   o.MetadataMaxTurns  = Math.Clamp(mmt, 1, 20);
+    if (int.TryParse(builder.Configuration["RAG_CATALOG_TERMS_TOP_K"],     out var cttk))  o.CatalogTermsTopK  = cttk;
 });
 
 builder.Services.Configure<SqlServerOptions>(o =>
 {
     o.ConnectionString = builder.Configuration["SQL_CONNECTION_STRING"];
+});
+
+var mongoConnStr = builder.Configuration["MONGO_CONNECTION_STRING"];
+builder.Services.Configure<MongoOptions>(o =>
+{
+    o.ConnectionString        = mongoConnStr;
+    o.Database                = builder.Configuration["MONGO_DATABASE"]                ?? o.Database;
+    o.ExtensionsCollection    = builder.Configuration["MONGO_EXTENSIONS_COLLECTION"]   ?? o.ExtensionsCollection;
 });
 
 builder.Services.Configure<ConfluenceOptions>(builder.Configuration.GetSection("Confluence"));
@@ -150,6 +161,22 @@ if (string.IsNullOrWhiteSpace(connStr))
 else
     builder.Services.AddDbContextPool<CatalogDbContext>(o => o.UseSqlServer(connStr));
 
+// ── MongoDB (optional — graceful degradation when MONGO_CONNECTION_STRING is absent) ────
+if (string.IsNullOrWhiteSpace(mongoConnStr))
+    builder.Services.AddSingleton<IMongoExtensionRepository, NullMongoExtensionRepository>();
+else
+    builder.Services.AddSingleton<IMongoExtensionRepository>(sp =>
+    {
+        var opts = sp.GetRequiredService<IOptions<MongoOptions>>().Value;
+        return new MongoExtensionRepository(opts);
+    });
+
+// ── Metadata pipeline (UC-2) ─────────────────────────────────────────────────────────────
+// CatalogTools is Scoped because it captures CatalogDbContext (Scoped).
+// MetadataPipeline is Scoped for the same reason.
+builder.Services.AddScoped<CatalogTools>();
+builder.Services.AddScoped<MetadataPipeline>();
+
 // ── LLM Request Queue ─────────────────────────────────────────────────────────
 builder.Services.AddSingleton<LlmRequestQueue>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<LlmRequestQueue>());
@@ -173,6 +200,7 @@ builder.Services.AddSingleton<DocsPipeline>();
 
 // ── Index bootstrap ───────────────────────────────────────────────────────────
 builder.Services.AddHostedService<IndexBootstrapper>();
+builder.Services.AddHostedService<CatalogIndexBootstrapper>();
 
 // ── Blazor / Razor Components ─────────────────────────────────────────────────
 builder.Services.AddRazorComponents()
