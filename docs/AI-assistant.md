@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Version** | 0.9 |
-| **Status** | Complete — Sprint 5 complete |
+| **Version** | 1.0 |
+| **Status** | Complete — Sprint 6 complete |
 | **Scope** | Proof of Concept |
 | **Date** | April 2026 |
-| **Changes from 0.8** | Sprint 5 implemented: `DemoOptions` with 4 feature flags, `DemoQueriesService` loading 9 curated warmup queries, `/demo/warmup` POST endpoint for embedding cache pre-warming, Chat.razor UI refinements (SSE named-event reader fix, `ChatMsg` record type, pipeline badges, citation links, animated spinner, error handling, stats panel), 172 tests green |
+| **Changes from 0.9** | Sprint 6 implemented: SQL Server 2022 + MongoDB 7.0 + Confluence mock (FastAPI) in Docker Compose; `CatalogSchemaBootstrapper` and `IBusinessRulesRepository` interfaces; 6 seeded MDM entities (Counterparty, ClientAccount, Book, SettlementInstruction, Country, Currency) with complex multi-value attributes and self-references; 3 new catalog tools (GetEntityAttributesAsync, GetChildAttributesAsync, GetEntityRulesAsync); 36 business rules seeded in MongoDB; intent router fix (contextual phrases for rules/validations/constraints); Citations always shown in UI; 18 curated demo queries; 174 tests green |
 
 ---
 
@@ -146,7 +146,21 @@ graph TB
     end
 ```
 
-### 4.1 Layered View
+### 4.1 Docker Compose Services
+
+All services run in a single `docker-compose.yml`:
+
+| Service | Port | Purpose |
+|---|---|---|
+| **rag-server** | `:8080` | ASP.NET Core app: chat endpoint, admin endpoints, ingestion `IHostedService` |
+| **ollama** | `:11434` | Local LLM inference (Qwen3, embeddings); CUDA when available, CPU fallback |
+| **elasticsearch** | `:9200` | Dual-role: RAG vector store (`docs`, `catalog_terms`, `schema_cards` indices) + operational data store (compiled DSL queries) |
+| **mssql** | `:1433` | SQL Server 2022 Developer Edition; catalog source of truth; `CatalogSchemaBootstrapper` ensures schema on startup via `Database.EnsureCreatedAsync()` |
+| **mongodb** | `:27017` | MongoDB 7.0; extension attributes and business rules; seeded via `docker/mongo-init/01_rules_seed.js` on container init |
+| **confluence-mock** | `:8090` | Python FastAPI mock; serves 15 MDM documentation pages via Confluence REST API contract (demo/testing alternative to production Confluence) |
+| **aspire-dashboard** | `:18888` (UI), `:4317` (OTLP) | .NET Aspire Dashboard; receives telemetry from all services; presents traces, metrics, logs, resource view |
+
+### 4.2 Layered View
 
 | Layer | Responsibility |
 |---|---|
@@ -200,7 +214,11 @@ Built on **`Microsoft.Extensions.AI`** abstractions (`IChatClient`, `IEmbeddingG
 
 A lightweight classifier that picks the pipeline:
 
-- **Approach:** rule-based shortcuts + small-model classifier as fallback. Regex/keyword cues handle the obvious cases (`"how does"`, `"what is"` → docs; `"give me all"` + entity term → metadata or data). Ambiguous prompts go to the model with constrained output (`docs | metadata | data`).
+- **Approach:** rule-based shortcuts + small-model classifier as fallback. Regex/keyword cues handle the obvious cases:
+  - `"how does"`, `"what is"` → docs
+  - `"give me all"` + entity term → metadata or data
+  - `rules?`, `validations?`, `constraints?`, `mandatory\s+(field|attribute|rule)`, `data\s+owner`, `governance\s+owner` → metadata (Sprint 6: contextual phrases to disambiguate from data queries)
+- Ambiguous prompts go to the model with constrained output (`docs | metadata | data`).
 - **Cost on GPU:** classification is a short generation (~5 tokens), <100 ms. Negligible.
 
 ### 5.4 Docs Pipeline
@@ -215,17 +233,21 @@ Standard RAG.
 
 ### 5.5 Metadata Pipeline (Tool Calling)
 
-SQL Server is the source of truth. MongoDB is queried for extension attributes that the SQL catalog does not model (e.g. business glossary annotations, custom flags).
+SQL Server is the source of truth. MongoDB is queried for extension attributes and business rules that the SQL catalog does not model (e.g. governance annotations, custom flags, validation constraints).
 
 **Defined tools:**
 
 | Tool | Source | Description |
 |---|---|---|
 | `ResolveEntity(text)` | ES catalog index | Fuzzy-match user terms to canonical entity names |
-| `GetEntityAttributes(entity, includeCDE?)` | SQL Server | Authoritative attribute list with types, nullability, classification |
+| `GetEntityAttributes(entity, mandatoryOnly?)` | SQL Server | Top-level attributes only (ParentAttributeId IS NULL); for complex multi-value attributes, inlines compact `ChildAttributeInfo` list; includes 7 metadata fields: AttributeCode, IsMandatory, IsCde, Owner, Sensitivity, HasChildren |
+| `GetChildAttributesAsync(entityName, parentAttributeCode)` | SQL Server | Full detail for children of a complex attribute (e.g., all system_map entries for Counterparty) |
 | `GetEntityExtensions(entityId)` | MongoDB | Extension attributes augmenting the SQL catalog |
 | `ListCDE(entity?)` | SQL Server | Critical Data Elements, optionally scoped |
+| `GetEntityRulesAsync(entityName, mandatoryOnly?)` | MongoDB | Business rules (MANDATORY and CONDITIONAL with conditions array); wrapped in `catalog.get_rules` OTel span |
 | `GetEntityRelationships(entity)` | SQL Server | FKs, parent/child, lineage |
+
+**Complex multi-value attributes:** Parent rows have `DataType="object[]"`; child rows use short codes (e.g., `MUREX`, `BLOOMBERG`, `PHYSICAL`, `LEI`) with no parent prefix. Depth-2 max via SQL self-reference.
 
 The model is given the tool catalog via `M.E.AI` function-calling middleware. The runtime executes calls, feeds results back, and lets the model compose the final answer. When both SQL and Mongo data are relevant, the system prompt instructs the model to call SQL first and Mongo second.
 
@@ -279,7 +301,7 @@ public record QuerySpec(
 );
 ```
 
-### 5.7 IR Extensions (Sprint 4)
+### 5.6a IR Extensions (Sprint 4)
 
 **Enhanced `FilterOperator` enum:**
 
@@ -305,7 +327,38 @@ public record QuerySpec(
   - Date math overflow.
 - Allows validation/retry loop to provide precise error feedback to the model.
 
-### 5.7 Ingestion Service
+### 5.7 Catalog Bootstrapping and Seeded Data (Sprint 6)
+
+**`CatalogSchemaBootstrapper : IHostedService`** — ensures SQL Server schema exists on startup by calling `Database.EnsureCreatedAsync()`. Idempotent; runs every container boot.
+
+**SQL catalog expansion:**
+- `CatalogAttribute` extended with `ParentAttributeId int?` self-reference (complex multi-value attributes, depth-2 max).
+- 7 new metadata fields per attribute: `AttributeCode`, `IsMandatory`, `IsCde`, `Owner`, `Sensitivity`, `BusinessTerm`, `CreatedDate`, `LastUpdatedDate`.
+- 6 MDM entities now seeded (10 total entities, previously 5 thin): **Counterparty**, **ClientAccount**, **Book**, **SettlementInstruction**, **Country**, **Currency**, plus Trade, Settlement, Portfolio, Instrument.
+- **162 `CatalogAttribute` rows**, **20 CDEs**, **11 entity relationships**, all idempotent on schema creation.
+
+**Complex multi-value attribute examples (per entity):**
+
+| Entity | Attribute | Child Codes | Purpose |
+|---|---|---|---|
+| **Counterparty** | `system_map` | MUREX, BLOOMBERG, SUMMIT, GBS | System integrations |
+| | `addresses` | PHYSICAL, POSTAL, REGISTERED, PRINCIPAL_OFFICE | Address types |
+| | `identifiers` | LEI, BIC, DUNS, CRN, GIIN | Identifier schemes |
+| | `contact_persons`, `regulatory_classifications` | (sub-entities) | Extension attributes |
+| **Book** | `system_map` | MUREX, JETBRIDGE, CPI | System integrations |
+| | `risk_limits` | DV01, PV01, VAR, NOTIONAL | Risk measure types |
+| | `traders` | (staff IDs) | Assigned traders |
+| **ClientAccount, SettlementInstruction, Country, Currency** | Similar patterns | — | Similar schemas |
+
+**MongoDB business rules (Sprint 6):**
+- New `IBusinessRulesRepository` interface with two implementations:
+  - `MongoBusinessRulesRepository` — active when `MONGO_CONNECTION_STRING` is configured; queries `catalog.entity_rules` collection.
+  - `NullBusinessRulesRepository` — graceful degradation when Mongo absent (returns empty list).
+- **36 seeded business rules** across the 6 MDM entities — mix of `MANDATORY` and `CONDITIONAL` with `conditions` array (e.g., field X required if field Y is set).
+- Seeded via `docker/mongo-init/01_rules_seed.js` on container init.
+- `MongoOptions.RulesCollection` defaults to `entity_rules`.
+
+### 5.9 Ingestion Service
 
 A `IHostedService` running inside the RAG server (POC scale).
 
@@ -329,7 +382,7 @@ A `IHostedService` running inside the RAG server (POC scale).
 
 **Atlassian MCP positioning:** **not** used for ingestion. Direct REST is faster, supports cursor-based incremental sync, and gives control over rate limits. MCP is reserved for optional **query-time** tools (e.g. "fetch the latest comment on JIRA-1234").
 
-### 5.8 Inference Layer (Ollama)
+### 5.10 Inference Layer (Ollama)
 
 Single Ollama instance per environment. CUDA backend used when available, CPU fallback otherwise. The `M.E.AI` abstraction means the same .NET code drives both.
 
@@ -348,7 +401,7 @@ Single Ollama instance per environment. CUDA backend used when available, CPU fa
 - GPU layer offload: `OLLAMA_NUM_GPU=999` (i.e. all layers) on the 16 GB laptop for 14B. On 8 GB GPUs the model fits fully without spillover at Q4_K_M.
 - Quantization: Q4_K_M as default. Q5_K_M considered if quality is the bottleneck and VRAM allows.
 
-### 5.9 A/B Test Client (Sprint 4)
+### 5.11 A/B Test Client (Sprint 4)
 
 **Purpose:** side-by-side model comparison for demo and evaluation without redeployment.
 
@@ -363,7 +416,7 @@ Single Ollama instance per environment. CUDA backend used when available, CPU fa
 
 **Demo use case:** live side-by-side UC-3 comparison (8B vs 14B) on the home laptop to demonstrate GPU-server benefit.
 
-### 5.10 Elasticsearch 9.x (dual role)
+### 5.12 Elasticsearch 9.x (dual role)
 
 ES serves two distinct purposes — **logically separate, physically the same cluster** for the POC:
 
@@ -386,7 +439,7 @@ ES runs in Docker for the POC (single node, security minimal — `xpack.security
 
 **Client-server version coupling:** the .NET client tracks server major version. ES 9.x server requires `Elastic.Clients.Elasticsearch` 9.x. Cross-major compatibility is not supported.
 
-### 5.11 OTel Custom Metrics (Sprint 4)
+### 5.13 OTel Custom Metrics (Sprint 4)
 
 **`RagMetrics` class** emits application-specific instruments:
 
@@ -400,7 +453,7 @@ ES runs in Docker for the POC (single node, security minimal — `xpack.security
 
 **Integration:** metrics exported to Aspire Dashboard via OTLP, visible in the dashboard's metrics view and usable for SLI/SLO charting.
 
-### 5.12 Pipeline Stats SSE (Sprint 4)
+### 5.14 Pipeline Stats SSE (Sprint 4)
 
 All three pipelines (Docs, Metadata, Data) now emit a final `event: stats` SSE frame before `[DONE]`:
 
@@ -437,7 +490,7 @@ data: {
 
 Purpose: make key performance numbers visible in the UI without alt-tabbing to the Aspire Dashboard.
 
-### 5.13 Telemetry Dashboard (.NET Aspire Dashboard)
+### 5.15 Telemetry Dashboard (.NET Aspire Dashboard)
 
 Standalone container, Microsoft-published image (`mcr.microsoft.com/dotnet/aspire-dashboard`). Acts as the OTLP endpoint for every other component in the system; presents the unified view.
 
@@ -588,7 +641,9 @@ Sessions are in-memory. Persistence is a Phase 2 concern.
 | Embedding model | bge-small-en-v1.5 | English-only, 384 dims, fast on CPU and GPU |
 | Vector + search server | **Elasticsearch 9.x** (current 9.3+) | Lucene 10, hybrid RRF, mature dense_vector, BBQ available for future scale |
 | ES .NET client | **`Elastic.Clients.Elasticsearch` 9.x** | Required by ES 9.x server; tracks server major version |
-| SQL access | EF Core 9 | Catalog domain rich enough to warrant it |
+| SQL catalog | **SQL Server 2022** (Developer Edition) | Source of truth for entities, attributes, CDEs, relationships; EF Core 9 access |
+| Mongo extension | **MongoDB 7.0** | Extension attributes, business rules, graceful degradation when absent |
+| SQL access | EF Core 9 | Catalog domain with 8 DbSets; change tracking for incremental ingestion |
 | Mongo access | `MongoDB.Driver` | Standard |
 | Atlassian | Direct REST + `HttpClient` | Control over incremental sync |
 | MCP client (optional, query-time) | `ModelContextProtocol` (C# SDK) | Integrates with M.E.AI function calling |
@@ -827,19 +882,19 @@ Reduced from 1–2 weeks; NVIDIA Container Toolkit confirmed pre-installed on bo
   - `DemoDebugPanel`: renders citations + debug details in messages (default `false`).
   - `DemoPreWarmedQueries`: array of pre-warming query strings (configured via env var or config).
 
-- **`DemoQueriesService`** — loads 9 curated warmup queries from `wwwroot/DemoQueries.json`:
-  - 3 UC-1 (Docs) queries covering settlement fails, reconciliation, trade booking.
-  - 3 UC-2 (Metadata) queries covering Trade entity, CDEs, Counterparty relationships.
-  - 3 UC-3 (Data) queries covering failed trades (sorted), monthly settlements (aggregation), counterparty filtering.
+- **`DemoQueriesService`** — loads 18 curated warmup queries from `wwwroot/DemoQueries.json` (Sprint 6: expanded to 18 MDM-focused queries):
+  - 6 UC-1 (Docs) queries covering settlement fails, reconciliation, trade booking, counterparty definitions, regulatory topics.
+  - 6 UC-2 (Metadata) queries covering Trade/Counterparty/Book entity attributes, CDEs, entity relationships, business rules.
+  - 6 UC-3 (Data) queries covering failed trades (sorted), monthly settlements (aggregation), counterparty filtering, counterparty system mappings, risk limits, trader assignments.
 
-- **`POST /demo/warmup`** endpoint — pre-warms embedding cache by routing all 9 demo queries through `IntentRouter`. Useful for ensuring snappy responses during live demo. Response JSON: `{ warmed: <count>, queries: [ { query, pipeline }, ... ] }`.
+- **`POST /demo/warmup`** endpoint — pre-warms embedding cache by routing all 18 demo queries through `IntentRouter`. Useful for ensuring snappy responses during live demo. Response JSON: `{ warmed: <count>, queries: [ { query, pipeline }, ... ] }`.
 
 **Chat.razor UI refinements:**
 
 - **SSE named-event reader fix** — correctly parses `event: stats` frames separate from default `data:` stream.
 - **`ChatMsg` record type** — encapsulates each message with `Role` (user/assistant), `Text`, `Pipeline` (docs/metadata/data for assistant), `IsError` flag, and optional `Citations` list.
 - **Pipeline badges** — each assistant message shows a small colored badge (`badge-docs`, `badge-metadata`, `badge-data`) indicating which pipeline answered.
-- **Citation links** — when `DemoDebugPanel` is enabled, citations render as clickable links to source URLs (Confluence pages, Jira issues) or plain titles.
+- **Citation links** — citations always render as clickable links to source URLs (Confluence pages, Jira issues) or plain titles (Sprint 6: no longer gated by `DemoDebugPanel`; always visible when present).
 - **Animated spinner** — while waiting for a response, shows animated dots (`...`) with CSS keyframes.
 - **Error handling** — network or server errors display in red (`error-text` class) with details.
 - **Demo Stats panel** — right sidebar (when `DemoStatsEnabled`), shows per-request metrics: Pipeline, Model, Latency, Tokens, Tokens/s, Tool Calls (UC-2), IR First Try (UC-3), Result Rows (UC-3). Metrics update after each `stats` event.
