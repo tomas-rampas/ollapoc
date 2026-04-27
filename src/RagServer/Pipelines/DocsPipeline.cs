@@ -56,8 +56,9 @@ public sealed class DocsPipeline(
             MaxOutputTokens = opts.Value.MaxOutputTokens
         };
 
-        // Stream answer tokens as SSE data events
+        // Stream answer tokens as SSE data events, stripping any <think>…</think> block
         var answerBuilder = new System.Text.StringBuilder();
+        var thinkStripper = new ThinkStripper();
         await foreach (var update in chatClient.GetStreamingResponseAsync(messages, chatOpts, ct))
         {
             var text = update.Text;
@@ -65,7 +66,11 @@ public sealed class DocsPipeline(
                 continue;
 
             answerBuilder.Append(text);
-            await response.WriteAsync($"data: {EscapeSse(text)}\n\n", ct);
+            var toEmit = thinkStripper.Process(text);
+            if (string.IsNullOrEmpty(toEmit))
+                continue;
+
+            await response.WriteAsync($"data: {EscapeSse(toEmit)}\n\n", ct);
             await response.Body.FlushAsync(ct);
         }
 
@@ -127,5 +132,45 @@ public sealed class DocsPipeline(
         // Normalise all line endings to LF, then encode for SSE multi-line data
         text = text.Replace("\r\n", "\n").Replace("\r", "\n");
         return text.Replace("\n", "\ndata: ");
+    }
+
+    // Buffers tokens until the Qwen3 <think>…</think> chain-of-thought block ends,
+    // then passes subsequent tokens through unchanged.
+    private sealed class ThinkStripper
+    {
+        private readonly System.Text.StringBuilder _buf = new();
+        private bool _inThink;
+        private bool _done;
+
+        public string? Process(string token)
+        {
+            if (_done) return token;
+
+            _buf.Append(token);
+            var s = _buf.ToString();
+
+            if (!_inThink)
+            {
+                if (string.IsNullOrWhiteSpace(s)) return null;
+                if (s.TrimStart().StartsWith("<think>", StringComparison.OrdinalIgnoreCase))
+                {
+                    _inThink = true;
+                }
+                else
+                {
+                    _done = true;
+                    _buf.Clear();
+                    return s;
+                }
+            }
+
+            var end = s.IndexOf("</think>", StringComparison.OrdinalIgnoreCase);
+            if (end < 0) return null;
+
+            _done = true;
+            var after = s[(end + 8)..].TrimStart('\n', '\r');
+            _buf.Clear();
+            return after.Length > 0 ? after : null;
+        }
     }
 }

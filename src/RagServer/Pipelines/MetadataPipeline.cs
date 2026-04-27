@@ -129,7 +129,7 @@ public sealed class MetadataPipeline(
         {
             foreach (var content in finalAnswer.Contents.OfType<TextContent>())
             {
-                var text = content.Text;
+                var text = StripThink(content.Text ?? "");
                 if (!string.IsNullOrEmpty(text))
                 {
                     answerText += text;
@@ -178,6 +178,14 @@ public sealed class MetadataPipeline(
         await response.WriteAsync($"event: stats\ndata: {statsJson}\n\n", ct);
         await response.Body.FlushAsync(ct);
     }
+
+    private static readonly System.Text.RegularExpressions.Regex ThinkPattern =
+        new(@"<think>[\s\S]*?</think>\s*",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static string StripThink(string text) =>
+        ThinkPattern.Replace(text, "").TrimStart();
 
     private static string EscapeSse(string text)
     {

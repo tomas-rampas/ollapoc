@@ -1,6 +1,8 @@
 @page "/"
 @page "/chat"
 @rendermode InteractiveServer
+@using Markdig
+@using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.Extensions.Options
 @using RagServer.Options
@@ -21,7 +23,7 @@
                     {
                         <span class="pipeline-badge badge-@m.Pipeline.ToLower()">@m.Pipeline</span>
                     }
-                    <span class="text @(m.IsError ? "error-text" : "")">@m.Text</span>
+                    <div class="text @(m.IsError ? "error-text" : "")">@((MarkupString)RenderMd(m.Text))</div>
                     @if (m.Citations?.Count > 0)
                     {
                         <div class="citations">
@@ -98,6 +100,12 @@
 </div>
 
 @code {
+    private static readonly MarkdownPipeline MdPipeline =
+        new MarkdownPipelineBuilder().DisableHtml().UseAdvancedExtensions().Build();
+
+    private static string RenderMd(string text) =>
+        string.IsNullOrEmpty(text) ? "" : Markdown.ToHtml(text, MdPipeline);
+
     private sealed record ChatMsg(
         string Role,
         string Text = "",
