@@ -278,11 +278,22 @@ public sealed class DataPipeline(
         {{schemaContext}}
 
         Example:
-        { "Entity": "Trade", "Filters": [{"Field": "Status", "Operator": "Eq", "Value": "ACTIVE"}], "TimeRange": {"Field": "TradeDate", "From": null, "To": null, "RelativePeriod": "last_30_days"}, "Sort": [{"Field": "TradeDate", "Direction": "Desc"}], "Aggregations": [], "Limit": 10 }
+        { "Entity": "Counterparty", "Filters": [{"Field": "status", "Operator": "Eq", "Value": "Active"}], "TimeRange": null, "Sort": [{"Field": "name", "Direction": "Asc"}], "Aggregations": [], "Limit": 10 }
         """;
+
+    private static readonly System.Text.RegularExpressions.Regex ThinkPattern =
+        new(@"<think>[\s\S]*?</think>\s*",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static string ExtractJson(string text)
     {
+        // Remove Qwen3 <think>...</think> block (reasoning contains {} that confuse JSON extraction)
+        text = ThinkPattern.Replace(text, "").TrimStart();
+        // Discard anything after an unclosed <think> tag (truncated mid-think)
+        var thinkIdx = text.IndexOf("<think>", StringComparison.OrdinalIgnoreCase);
+        if (thinkIdx >= 0) text = text[..thinkIdx];
+
         // Strip optional markdown code fences
         var trimmed = text.Trim();
         if (trimmed.StartsWith("```"))
