@@ -61,10 +61,12 @@ public sealed class DataPipeline(
 
         // ── Build prompt ──────────────────────────────────────────────────────
         var systemPrompt = BuildSystemPrompt(schemaContext);
+        // Qwen3: /no_think disables chain-of-thought; ExtractJson already strips any think
+        // block before parsing, so reasoning here is wasted latency (13 t/s × 1500 = 115s timeout).
         var messages = new List<ChatMessage>
         {
             new(ChatRole.System, systemPrompt),
-            new(ChatRole.User, query)
+            new(ChatRole.User, query + " /no_think")
         };
 
         var chatOpts = new ChatOptions { MaxOutputTokens = opts.Value.DataIrMaxTokens };

@@ -89,7 +89,6 @@ public class DocsPipelineTests
         return new DocsPipeline(
             retriever ?? BuildOfflineRetriever(),
             mockChat.Object,
-            Create(new RagOptions()),
             Create(new OllamaOptions()));
     }
 
