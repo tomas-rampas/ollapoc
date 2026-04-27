@@ -227,7 +227,11 @@ if (string.IsNullOrWhiteSpace(connStr))
 else
 {
     builder.Services.AddDbContextPool<CatalogDbContext>(o => o.UseSqlServer(connStr));
-    builder.Services.AddDbContext<BusinessDataContext>(o => o.UseSqlServer(connStr));
+    // BusinessDataContext uses its own database so EnsureCreated works even when
+    // CatalogDB already exists with a migrations history table.
+    var bizConnStr = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(connStr)
+        { InitialCatalog = "BusinessDB" }.ConnectionString;
+    builder.Services.AddDbContext<BusinessDataContext>(o => o.UseSqlServer(bizConnStr));
 }
 
 // ── MongoDB (optional — graceful degradation when MONGO_CONNECTION_STRING is absent) ────
