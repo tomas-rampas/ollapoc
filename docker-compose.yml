@@ -48,7 +48,8 @@ services:
       - SA_PASSWORD=${SQL_SA_PASSWORD:-Strong!Pass1}
       - MSSQL_PID=Developer
     ports:
-      - "127.0.0.1:1433:1433"
+      # 14330 avoids conflict with a local SQL Server instance or Windows Hyper-V port reservations
+      - "127.0.0.1:14330:1433"
     volumes:
       - mssql_data:/var/opt/mssql
     healthcheck:
