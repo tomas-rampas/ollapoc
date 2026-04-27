@@ -174,7 +174,7 @@ How is FATCA status determined for a counterparty?
 
 ### UC-2: Metadata Queries (SQL Server + MongoDB Catalog)
 
-Demonstrates function-calling: model invokes 7 catalog tools → SQL / MongoDB queries → structured results.
+Demonstrates function-calling: model invokes 8 catalog tools → SQL / MongoDB queries → structured results.
 
 **Query 1 (mandatory attributes):**
 ```

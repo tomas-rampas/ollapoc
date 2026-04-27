@@ -18,7 +18,10 @@ public sealed class CatalogIndexBootstrapper(
     private const string IndexName  = "catalog_terms";
     private const int    BatchSize  = 50;
 
-    private sealed record CatalogTermDoc(string name, string entity, string type, float[] vector);
+    private sealed record CatalogTermDoc(
+        string name, string entity, string type,
+        string? entityType, string? description,
+        float[] vector);
 
     public async Task StartAsync(CancellationToken ct)
     {
@@ -39,7 +42,9 @@ public sealed class CatalogIndexBootstrapper(
                         .DenseVector("vector", dv => dv
                             .Dims(384)
                             .Similarity(DenseVectorSimilarity.Cosine)
-                            .Index(true)))), ct);
+                            .Index(true))
+                        .Keyword("entityType")
+                        .Text("description"))), ct);
 
             logger.LogInformation("{Index} index created", IndexName);
 
@@ -70,19 +75,19 @@ public sealed class CatalogIndexBootstrapper(
             foreach (var e in entities)
             {
                 var vec = await EmbedAsync(e.Name, ct);
-                docs.Add(new CatalogTermDoc(e.Name, e.Name, "entity", vec));
+                docs.Add(new CatalogTermDoc(e.Name, e.Name, "entity", e.EntityType, e.Description, vec));
             }
 
             foreach (var a in attributes)
             {
                 var vec = await EmbedAsync(a.Name, ct);
-                docs.Add(new CatalogTermDoc(a.Name, a.Entity.Name, "attribute", vec));
+                docs.Add(new CatalogTermDoc(a.Name, a.Entity.Name, "attribute", null, a.Description, vec));
             }
 
             foreach (var c in cdes)
             {
                 var vec = await EmbedAsync(c.Name, ct);
-                docs.Add(new CatalogTermDoc(c.Name, c.Entity.Name, "cde", vec));
+                docs.Add(new CatalogTermDoc(c.Name, c.Entity.Name, "cde", null, c.Description, vec));
             }
 
             // ── Bulk-index in batches of BatchSize ────────────────────────────

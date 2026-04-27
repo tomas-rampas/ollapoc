@@ -11,6 +11,7 @@ using RagServer.Telemetry;
 namespace RagServer.Tools;
 
 public record ResolvedEntity(string Name, string EntityType, string? Description);
+public record EntitySummary(string Name, string EntityType, string EntityCode, string? Description);
 public record ChildAttributeInfo(string Code, string DataType, string? Description);
 public record EntityAttributeInfo(
     string Name,
@@ -37,6 +38,23 @@ public sealed class CatalogTools(
     ILogger<CatalogTools> logger)
 {
     private const int MaxToolArgLength = 512;
+
+    [Description("List all entities registered in the catalog, optionally filtered by entity type (e.g. 'reference', 'party', 'account', 'process', 'instruction', 'financial_instrument'). Use this when the user asks what entities or entity types exist in the system.")]
+    public async Task<IReadOnlyList<EntitySummary>> ListEntitiesAsync(
+        [Description("Optional entity type filter, e.g. 'reference'. Pass null to return all entities.")] string? entityType = null,
+        CancellationToken ct = default)
+    {
+        if (entityType is not null && entityType.Length > MaxToolArgLength) return [];
+
+        var query = db.CatalogEntities.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(entityType))
+            query = query.Where(e => e.EntityType.ToLower() == entityType.ToLower());
+
+        return await query
+            .OrderBy(e => e.EntityType).ThenBy(e => e.Name)
+            .Select(e => new EntitySummary(e.Name, e.EntityType, e.EntityCode, e.Description))
+            .ToListAsync(ct);
+    }
 
     [Description("Resolve a natural-language entity name to its canonical catalog name and entity type.")]
     public async Task<ResolvedEntity?> ResolveEntityAsync(
@@ -67,7 +85,7 @@ public sealed class CatalogTools(
             var hit = resp.Hits.First();
             var src = hit.Source;
             var resolvedName = src.TryGetProperty("name",        out var n)  ? n.GetString()  ?? "" : "";
-            var entityType   = src.TryGetProperty("entity_type", out var et) ? et.GetString() ?? "" : "";
+            var entityType   = src.TryGetProperty("entityType",  out var et) ? et.GetString() ?? "" : "";
             var description  = src.TryGetProperty("description", out var d)  ? d.GetString()       : null;
 
             return new ResolvedEntity(resolvedName, entityType, description);

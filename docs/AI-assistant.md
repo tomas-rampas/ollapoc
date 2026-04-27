@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Version** | 1.0 |
-| **Status** | Complete — Sprint 6 complete |
+| **Version** | 1.1 |
+| **Status** | Complete — Sprint 7 complete |
 | **Scope** | Proof of Concept |
 | **Date** | April 2026 |
-| **Changes from 0.9** | Sprint 6 implemented: SQL Server 2022 + MongoDB 7.0 + Confluence mock (FastAPI) in Docker Compose; `CatalogSchemaBootstrapper` and `IBusinessRulesRepository` interfaces; 6 seeded MDM entities (Counterparty, ClientAccount, Book, SettlementInstruction, Country, Currency) with complex multi-value attributes and self-references; 3 new catalog tools (GetEntityAttributesAsync, GetChildAttributesAsync, GetEntityRulesAsync); 36 business rules seeded in MongoDB; intent router fix (contextual phrases for rules/validations/constraints); Citations always shown in UI; 18 curated demo queries; 174 tests green |
+| **Changes from 1.0** | Sprint 7: routing improvements — context-aware follow-up routing (`lastPipeline` hint via `ChatRequest.History`), `catalog(?:ue)?` keyword, `what (?:the\|a\|an)` inverted-question pattern, `meaning`/`elaborate`/`comprehensive` Docs cues, BusinessEntityPattern Tier 1.5 entity-name detection; conversation history in `ChatRequest.History` (`ConversationTurn` records, last 10 messages); `ListEntitiesAsync` (UC-2 now 8 tools); `catalog_terms` index enriched with `entityType` and `description` fields; fixed `ResolveEntityAsync` field-name bug (`entity_type` → `entityType`); 248 tests green |
 
 ---
 
@@ -16,7 +16,7 @@ A self-hosted AI assistant that lets business users query enterprise data, metad
 
 - **Retrieval-Augmented Generation (RAG)** over Confluence and Jira for documentation Q&A.
 - **Tool-calling against a metadata catalog** (SQL Server primary, MongoDB extension) for structured lookups about entities and their attributes.
-- **Natural-language to Elasticsearch DSL translation** for ad-hoc data queries against the operational datastore.
+- **Natural-language to SQL translation** for ad-hoc data queries against the operational SQL Server data store (BusinessDB).
 
 All inference runs locally via **Ollama**, hosting **Qwen3** (8B or 14B depending on hardware) for chat and **bge-small-en-v1.5** for embeddings. The orchestration layer is a **.NET 10** service. Vector search and document retrieval run on **Elasticsearch 9.x**. End-to-end observability is provided by the **.NET Aspire Dashboard** receiving OTLP telemetry from every component.
 
@@ -41,7 +41,7 @@ The POC validates the architecture on developer-laptop GPUs, demonstrates the sy
 - **Fine-tuning.** Out of scope; revisited only if base-model quality is the bottleneck.
 - **External API fallback.** Out of scope by constraint — all inference local.
 - **Multi-language support.** UK English only.
-- **Conversation memory across sessions.** Per-session context only.
+- **Conversation memory across sessions.** The Chat UI maintains message history within the browser session and sends the last 10 turns with each request for context-aware routing. Full persistence across sessions is deferred.
 
 ### 2.3 Scale and Deployment Targets
 
@@ -88,7 +88,7 @@ Structured lookup against the catalog via **tool calling**. SQL Server is the so
 
 Two-stage translation:
 1. NL → **Intermediate Representation** (typed JSON: entity, filters, time range, sort, aggregations).
-2. IR → **Elasticsearch DSL** via a deterministic compiler in C#.
+2. IR → **parameterized SQL** via a deterministic compiler in C#, executed against the operational SQL Server data store (BusinessDB — 11 business entities: Counterparty, Country, Currency, Book, Settlement, ClientAccount, SettlementInstruction, Region, Location, UkSicCode, NaceCode).
 
 Validated, executed, rendered. Single retry on validation failure with the error fed back to the model.
 
@@ -125,8 +125,8 @@ graph TB
         MetaFlow --> Catalog[Catalog Tools]
         Catalog --> SQL[(SQL Server<br/>source of truth)]
         Catalog --> Mongo[(MongoDB<br/>extension attrs)]
-        DataFlow --> Compiler[IR → DSL Compiler]
-        Compiler --> ESData[(Elasticsearch 9.x<br/>operational data)]
+        DataFlow --> Compiler[IR → SQL Compiler]
+        Compiler --> SQLData[(SQL Server<br/>operational data / BusinessDB)]
     end
 
     subgraph Ingestion
@@ -154,7 +154,7 @@ All services run in a single `docker-compose.yml`:
 |---|---|---|
 | **rag-server** | `:8080` | ASP.NET Core app: chat endpoint, admin endpoints, ingestion `IHostedService` |
 | **ollama** | `:11434` | Local LLM inference (Qwen3, embeddings); CUDA when available, CPU fallback |
-| **elasticsearch** | `:9200` | Dual-role: RAG vector store (`docs`, `catalog_terms`, `schema_cards` indices) + operational data store (compiled DSL queries) |
+| **elasticsearch** | `:9200` | RAG vector store (`docs`, `catalog_terms`, `schema_cards` indices); operational business data is served from SQL Server (BusinessDB) |
 | **mssql** | `:1433` | SQL Server 2022 Developer Edition; catalog source of truth; `CatalogSchemaBootstrapper` ensures schema on startup via `Database.EnsureCreatedAsync()` |
 | **mongodb** | `:27017` | MongoDB 7.0; extension attributes and business rules; seeded via `docker/mongo-init/01_rules_seed.js` on container init |
 | **confluence-mock** | `:8090` | Python FastAPI mock; serves 15 MDM documentation pages via Confluence REST API contract (demo/testing alternative to production Confluence) |
@@ -182,7 +182,7 @@ All services run in a single `docker-compose.yml`:
 ### 5.1 Chat UI
 
 - **Tech:** Blazor Server. Minimises moving parts for a single-developer POC; SignalR streaming integrates naturally.
-- **Features:** streaming responses, message history within session, citation links, query type indicator, "show retrieved context" debug panel, **Demo Stats panel**, model badge.
+- **Features:** streaming responses, message history within session, citation links, query type indicator, "show retrieved context" debug panel, **Demo Stats panel**, model badge, **conversation history** (last 10 messages sent with each request as `ConversationTurn` records for context-aware follow-up routing).
 - **Auth:** OIDC against existing corporate IdP. ID token forwarded to the RAG server as a bearer token.
 
 **Demo Stats panel** (sidebar in the UI):
@@ -212,13 +212,15 @@ Built on **`Microsoft.Extensions.AI`** abstractions (`IChatClient`, `IEmbeddingG
 
 ### 5.3 Intent Router
 
-A lightweight classifier that picks the pipeline:
+A lightweight classifier that picks the pipeline. Three regex rule tiers checked in order (Metadata → Data → Docs), then a Tier 1.5 business-entity name detector, then a 1-turn LRU cache, then model fallback.
 
-- **Approach:** rule-based shortcuts + small-model classifier as fallback. Regex/keyword cues handle the obvious cases:
-  - `"how does"`, `"what is"` → docs
-  - `"give me all"` + entity term → metadata or data
-  - `rules?`, `validations?`, `constraints?`, `mandatory\s+(field|attribute|rule)`, `data\s+owner`, `governance\s+owner` → metadata (Sprint 6: contextual phrases to disambiguate from data queries)
-- Ambiguous prompts go to the model with constrained output (`docs | metadata | data`).
+- **Metadata keywords (tier 1):** `rules?`, `validations?`, `constraints?`, `mandatory (field|attribute|rule)`, `data_owner`, `governance_owner`, `attributes?`, `fields?`, `columns?`, `schema`, `cde`, `critical data elements?`, `entity`, `entities`, `metadata`, `catalog(?:ue)?`
+- **Data keywords (tier 1):** `give me`, `list all/me/the`, `show me`, `find`, `records?`, `count of`, `how many`, `how much`, `number of`, `fetch`, `get all/me`, `top N`, `aggregate`, `filter by`, `search for`, `query the`, `provide detail/info`, `tell me about`, `look up`
+- **Docs keywords (tier 1):** `how`, `what is/are/does`, `what (?:the|a|an)` (inverted question forms), `explain`, `describe`, `definition`, `purpose`, `guide`, `tutorial`, `overview`, `meaning`, `elaborate`, `comprehensive`
+- **Tier 1.5 — business-entity detection:** when no tier-1 rule fires, matches known entity nouns (`counterparty`, `settlement`, `book`, `currency`, `country`, `client account`, `region`, `location`) and routes to Data.
+- **Context-aware follow-up routing:** `RouteAsync` accepts an optional `lastPipeline` hint. When the Docs rule fires on a follow-up indicator (`elaborate`, `more detail`, `more about`, `tell me more`, etc.) and `lastPipeline` is set, the router continues in the previous pipeline rather than defaulting to Docs.
+- **Conversation history:** each chat request sends the last 10 messages as `ChatRequest.History` (`ConversationTurn` records with role, content, pipeline). The server extracts the `lastPipeline` from the last assistant turn and passes it to `RouteAsync`.
+- Ambiguous prompts go to the model with constrained output (`docs | metadata | data`); result cached in-process LRU.
 - **Cost on GPU:** classification is a short generation (~5 tokens), <100 ms. Negligible.
 
 ### 5.4 Docs Pipeline
@@ -235,11 +237,12 @@ Standard RAG.
 
 SQL Server is the source of truth. MongoDB is queried for extension attributes and business rules that the SQL catalog does not model (e.g. governance annotations, custom flags, validation constraints).
 
-**Defined tools:**
+**Defined tools (8 total):**
 
 | Tool | Source | Description |
 |---|---|---|
-| `ResolveEntity(text)` | ES catalog index | Fuzzy-match user terms to canonical entity names |
+| `ListEntities(entityType?)` | SQL Server | List all entities in the catalog, optionally filtered by entity type (`reference`, `party`, `account`, `process`, `instruction`, `financial_instrument`). Use when the user asks what entities or entity types exist. |
+| `ResolveEntity(text)` | ES `catalog_terms` index | Fuzzy-match user terms to canonical entity names via kNN vector search; `catalog_terms` documents now include `entityType` and `description` fields |
 | `GetEntityAttributes(entity, mandatoryOnly?)` | SQL Server | Top-level attributes only (ParentAttributeId IS NULL); for complex multi-value attributes, inlines compact `ChildAttributeInfo` list; includes 7 metadata fields: AttributeCode, IsMandatory, IsCde, Owner, Sensitivity, HasChildren |
 | `GetChildAttributesAsync(entityName, parentAttributeCode)` | SQL Server | Full detail for children of a complex attribute (e.g., all system_map entries for Counterparty) |
 | `GetEntityExtensions(entityId)` | MongoDB | Extension attributes augmenting the SQL catalog |
@@ -251,7 +254,7 @@ SQL Server is the source of truth. MongoDB is queried for extension attributes a
 
 The model is given the tool catalog via `M.E.AI` function-calling middleware. The runtime executes calls, feeds results back, and lets the model compose the final answer. When both SQL and Mongo data are relevant, the system prompt instructs the model to call SQL first and Mongo second.
 
-### 5.6 Data Pipeline (NL → IR → DSL)
+### 5.6 Data Pipeline (NL → IR → SQL)
 
 The hardest path. Four discrete steps with validation between each:
 
@@ -260,33 +263,32 @@ sequenceDiagram
     participant U as User
     participant R as RAG Server
     participant O as Qwen3
-    participant E as Elasticsearch
+    participant S as SQL Server (BusinessDB)
 
     U->>R: "counterparties updated today"
-    R->>R: ResolveEntity → "Counterparty"
-    R->>E: Fetch mapping for counterparty index
-    R->>O: Prompt + schema card + IR JSON Schema
+    R->>O: Prompt + entity schema + IR JSON Schema
     O-->>R: IR JSON {entity, filters, time_range, sort}
     R->>R: Validate IR against schema
-    R->>R: Compile IR → ES DSL
-    R->>E: ES _validate/query
-    alt valid
-        R->>E: _search
-        E-->>R: results
-        R->>O: Format results into NL answer
+    R->>R: Compile IR → parameterized SQL
+    R->>S: Execute SQL query
+    alt valid results
+        S-->>R: rows
+        R->>O: Format rows into NL answer
         O-->>R: answer
         R-->>U: answer + result preview
-    else invalid
+    else validation error
         R->>O: Retry with error feedback (max 1)
     end
 ```
 
-**Why an IR rather than direct DSL:**
+**Why an IR rather than direct SQL:**
 
 - Smaller, well-typed target — easier for a small model to hit reliably.
-- Compiler is plain C#: testable, deterministic.
-- Edge cases (date math, nested fields, term-vs-keyword, range queries on dates) are encoded once in the compiler, not relearned per query.
-- Validation failures are caught at compile time in C#, not as ES runtime errors.
+- `QuerySpecToSqlCompiler` is plain C#: testable, deterministic.
+- Edge cases (date math, nullable fields, range queries, aggregations) are encoded once in the compiler, not relearned per query.
+- Validation failures are caught at compile time in C#, not as SQL runtime errors.
+
+**Operational data store:** `BusinessDataContext` — a separate EF Core `DbContext` pointing at the **BusinessDB** SQL Server database with 11 business entities: `Counterparty`, `Country`, `Currency`, `Book`, `Settlement`, `ClientAccount`, `SettlementInstruction`, `Region`, `Location`, `UkSicCode`, `NaceCode`.
 
 **IR shape (sketch):**
 
@@ -418,10 +420,7 @@ Single Ollama instance per environment. CUDA backend used when available, CPU fa
 
 ### 5.12 Elasticsearch 9.x (dual role)
 
-ES serves two distinct purposes — **logically separate, physically the same cluster** for the POC:
-
-- **Vector + document store** for RAG: indices for `docs`, `catalog_terms`, `schema_cards`.
-- **Operational data store** for UC-3: existing business indices, queried via the compiled DSL.
+ES serves one purpose in the POC — **vector + document store** for RAG: indices `docs`, `catalog_terms`, `schema_cards`. Operational business data for UC-3 is served from the SQL Server BusinessDB via `BusinessDataContext`, not from Elasticsearch.
 
 Indices use:
 - `dense_vector` field for embeddings (cosine similarity, HNSW). 384 dims for `bge-small-en-v1.5`.
@@ -622,9 +621,9 @@ Compact per-entity schema descriptions (field name, type, sample values, semanti
 | `EvalQueries` | Curated golden-set queries for regression testing |
 | `EvalResults` | Per-run quality metrics |
 
-### 7.5 No Conversation Persistence (POC)
+### 7.5 Conversation State (POC)
 
-Sessions are in-memory. Persistence is a Phase 2 concern.
+Full conversation persistence is a Phase 2 concern — sessions are in-memory only. However, the Chat UI sends the last 10 messages with each request as `ChatRequest.History` (`ConversationTurn` records). The RAG server uses this to extract the `lastPipeline` from the most recent assistant turn and passes it to `IntentRouter.RouteAsync`, enabling context-aware follow-up routing (e.g. "elaborate" after a Metadata answer continues in Metadata, not Docs). This routing context does not persist across page refreshes or browser sessions.
 
 ---
 

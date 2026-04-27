@@ -32,16 +32,17 @@ public sealed class MetadataPipeline(
 
     private const string SystemPrompt =
         "You are a catalog assistant. Use the provided tools to look up entity information. " +
-        "Answer ONLY from tool results. Do not invent information.";
+        "Answer ONLY from tool results. Do not invent information. /no_think";
 
     public async Task ExecuteAsync(string query, HttpResponse response, CancellationToken ct)
     {
         using var activity = RagActivitySource.Source.StartActivity("rag.metadata_pipeline");
         var sw = Stopwatch.StartNew();
 
-        // Register all 7 catalog tools via AIFunctionFactory.Create(Delegate)
+        // Register all 8 catalog tools via AIFunctionFactory.Create(Delegate)
         AIFunction[] aiFunctions =
         [
+            AIFunctionFactory.Create(catalogTools.ListEntitiesAsync),
             AIFunctionFactory.Create(catalogTools.ResolveEntityAsync),
             AIFunctionFactory.Create(catalogTools.GetEntityAttributesAsync),
             AIFunctionFactory.Create(catalogTools.GetChildAttributesAsync),

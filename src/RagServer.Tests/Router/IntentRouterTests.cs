@@ -30,6 +30,15 @@ public class IntentRouterTests
     [InlineData("Explain the netting process")]
     [InlineData("Describe the risk framework")]
     [InlineData("What is the purpose of the trade lifecycle?")]
+    // Conceptual phrasing that previously fell through to Tier 1.5 (entity-name) → Data
+    [InlineData("What meaning does currency have in the Reference data area?")]
+    [InlineData("Can you elaborate about Counterparty?")]
+    [InlineData("Can you be more comprehensive about the trade lifecycle?")]
+    [InlineData("What does LEI stand for?")]
+    // Inverted question form ("What X is?") — "what the/a/an" triggers Docs before entity-name Tier 1.5
+    [InlineData("What the Currency is?")]
+    [InlineData("What a counterparty is?")]
+    [InlineData("What an LEI is?")]
     public async Task RuleBased_Docs_Queries(string query)
     {
         var router = BuildRouter();
@@ -44,6 +53,8 @@ public class IntentRouterTests
     [InlineData("Show me the columns for the Position entity")]
     [InlineData("What are the critical data elements for risk reporting?")]
     [InlineData("What metadata does a Contract entity expose?")]
+    [InlineData("Do we have Currency and Country in the Catalogue?")]
+    [InlineData("Is Currency in the catalog?")]
     public async Task RuleBased_Metadata_Queries(string query)
     {
         var router = BuildRouter();
@@ -125,6 +136,41 @@ public class IntentRouterTests
         Assert.Equal(PipelineKind.Data, r1);
         Assert.Equal(PipelineKind.Data, r2);
         Assert.Equal(1, callCount); // model called only once
+    }
+
+    // ── Context-aware follow-up routing ──────────────────────────────────────
+    [Fact]
+    public async Task ContextMemory_Elaborate_ContinuesWithPreviousMetadata()
+    {
+        var router = BuildRouter();
+        var result = await router.RouteAsync("Can you elaborate about that?", PipelineKind.Metadata);
+        Assert.Equal(PipelineKind.Metadata, result);
+    }
+
+    [Fact]
+    public async Task ContextMemory_Elaborate_ContinuesWithPreviousData()
+    {
+        var router = BuildRouter();
+        var result = await router.RouteAsync("Please elaborate more", PipelineKind.Data);
+        Assert.Equal(PipelineKind.Data, result);
+    }
+
+    [Fact]
+    public async Task ContextMemory_ConceptualQuestion_IgnoresContext()
+    {
+        // "meaning" is conceptual, not a follow-up indicator — Docs rule wins regardless of context
+        var router = BuildRouter();
+        var result = await router.RouteAsync("What meaning does currency have?", PipelineKind.Data);
+        Assert.Equal(PipelineKind.Docs, result);
+    }
+
+    [Fact]
+    public async Task ContextMemory_WhatIs_IgnoresContext()
+    {
+        // "what is" is always Docs — context cannot override it
+        var router = BuildRouter();
+        var result = await router.RouteAsync("What is LEI?", PipelineKind.Metadata);
+        Assert.Equal(PipelineKind.Docs, result);
     }
 
     // ── Edge cases ────────────────────────────────────────────────────────────

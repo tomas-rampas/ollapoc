@@ -42,8 +42,16 @@ public static class ChatEndpoint
             // Enqueue BEFORE setting SSE headers so a full queue can still return a real 429
             await queue.EnqueueAsync(async ct =>
             {
+                // Extract the last pipeline used (for follow-up context routing)
+                PipelineKind? lastPipeline = null;
+                var lastAssistantTurn = req.History?.LastOrDefault(h =>
+                    h.Role == "assistant" && h.Pipeline != null);
+                if (lastAssistantTurn?.Pipeline is string p &&
+                    Enum.TryParse<PipelineKind>(p, ignoreCase: true, out var pk))
+                    lastPipeline = pk;
+
                 // Routing runs inside the queue so all LLM calls (routing + chat) are serialised
-                var pipeline = await router.RouteAsync(req.Message, ct);
+                var pipeline = await router.RouteAsync(req.Message, lastPipeline, ct);
                 activity?.SetTag("rag.pipeline", pipeline.ToString().ToLower());
 
                 // Headers committed here — queue slot is held so 429 cannot occur after this point
@@ -109,5 +117,9 @@ public static class ChatEndpoint
             .Replace("\r", "\n")
             .Replace("\n", "\ndata: ");
 
-    public record ChatRequest(string Message);
+    public record ConversationTurn(string Role, string Content, string? Pipeline = null);
+
+    public record ChatRequest(
+        string Message,
+        IReadOnlyList<ConversationTurn>? History = null);
 }

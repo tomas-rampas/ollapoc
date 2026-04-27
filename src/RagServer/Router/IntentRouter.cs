@@ -13,13 +13,19 @@ public sealed class IntentRouter
     // (e.g. "What are the critical data elements?" should route to Metadata, not Docs)
     private static readonly (Regex Pattern, PipelineKind Kind)[] Rules =
     [
-        (new Regex(@"\b(rules?|validations?|constraints?|mandatory\s+(field|attribute|rule)|data\s+owner|governance\s+owner|attributes?|fields?|columns?|schema|cde|critical data elements?|entity|entities|metadata)\b",
+        (new Regex(@"\b(rules?|validations?|constraints?|mandatory\s+(field|attribute|rule)|data\s+owner|governance\s+owner|attributes?|fields?|columns?|schema|cde|critical data elements?|entity|entities|metadata|catalog(?:ue)?)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled), PipelineKind.Metadata),
         (new Regex(@"\b(give me (?:all|some|any|the|\d+)|give\b|list (?:all|me|the)|show me|find (?:all|me)?|records?|count of|how many|how much|number of|fetch|get (?:all|me)?|top \d+|count|aggregate|filter by|search for|query the|provide (?:me )?(?:detail|details|info|information)|tell me about|look\s*up)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled), PipelineKind.Data),
-        (new Regex(@"\b(how|what is|what are|explain|describe|definition|purpose|guide|tutorial|overview)\b",
+        (new Regex(@"\b(how|what is|what are|what does|what (?:the|a|an)\b|explain|describe|definition|purpose|guide|tutorial|overview|meaning|elaborate|comprehensive)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled), PipelineKind.Docs),
     ];
+
+    // Follow-up indicators: when Docs rule fires on these words AND lastPipeline is known,
+    // continue in the previous pipeline rather than defaulting to Docs.
+    private static readonly Regex FollowUpPattern = new(
+        @"\b(elaborate|more detail|more details|more comprehensive|more about|tell me more|expand on)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     // Tier 1.5: known business entity names — routes to Data when no rule above matched.
     // Catches natural filter phrasing: "UK counterparties", "those settlements which...", etc.
@@ -43,7 +49,10 @@ public sealed class IntentRouter
         _cacheCapacity = ragOpts.Value.EmbeddingCacheSize;
     }
 
-    public async Task<PipelineKind> RouteAsync(string query, CancellationToken ct = default)
+    public async Task<PipelineKind> RouteAsync(
+        string query,
+        PipelineKind? lastPipeline = null,
+        CancellationToken ct = default)
     {
         using var activity = RagActivitySource.Source.StartActivity("rag.route");
 
@@ -52,6 +61,15 @@ public sealed class IntentRouter
         {
             if (pattern.IsMatch(query))
             {
+                // Follow-up words (elaborate, more detail, etc.) + known previous pipeline
+                // → continue in that pipeline rather than defaulting to Docs
+                if (kind == PipelineKind.Docs && lastPipeline.HasValue && FollowUpPattern.IsMatch(query))
+                {
+                    activity?.SetTag("rag.route.rule_matched", true);
+                    activity?.SetTag("rag.route.follow_up", true);
+                    activity?.SetTag("rag.pipeline", lastPipeline.Value.ToString().ToLower());
+                    return lastPipeline.Value;
+                }
                 activity?.SetTag("rag.route.rule_matched", true);
                 activity?.SetTag("rag.pipeline", kind.ToString().ToLower());
                 return kind;

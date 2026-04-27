@@ -37,7 +37,7 @@ public static class AdminEndpoint
 
             foreach (var q in queries)
             {
-                var pipeline = await router.RouteAsync(q.Text, ct);
+                var pipeline = await router.RouteAsync(q.Text, ct: ct);
                 results.Add(new { query = q.Text, pipeline = pipeline.ToString() });
             }
 

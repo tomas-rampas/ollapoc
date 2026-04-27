@@ -5,8 +5,8 @@ A self-hosted AI assistant that lets business users query enterprise data, metad
 | Pipeline | Use Case | How it works |
 |---|---|---|
 | **Docs (UC-1)** | *"What is a DVP settlement instruction?"* | RAG over 15 MDM Confluence pages — hybrid BM25 + kNN search → grounded Qwen3 answer with citation links |
-| **Metadata (UC-2)** | *"What are the mandatory attributes for Book?"* | Tool-calling loop against SQL Server catalog + MongoDB business rules — 7 tools, up to 10 turns |
-| **Data (UC-3)** | *"Show me all settlement failures in the last 7 days"* | NL → typed `QuerySpec` IR → C# DSL compiler → Elasticsearch query → formatted answer |
+| **Metadata (UC-2)** | *"What are the mandatory attributes for Book?"* | Tool-calling loop against SQL Server catalog + MongoDB business rules — 8 tools, up to 10 turns |
+| **Data (UC-3)** | *"Show me all settlement failures in the last 7 days"* | NL → typed `QuerySpec` IR → C# SQL compiler → parameterized SQL Server query (BusinessDB) → formatted answer |
 
 All LLM inference runs locally via **Ollama** (Qwen3 8B Q4_K_M). The orchestration layer is **.NET 10 ASP.NET Core + Blazor Server**. No cloud services required.
 
@@ -82,7 +82,7 @@ Open in your browser:
 
 ```bash
 dotnet test src/RagServer.Tests/
-# 176 tests, ~40 s
+# 248 tests
 ```
 
 ---

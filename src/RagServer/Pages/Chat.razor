@@ -177,9 +177,17 @@
             // BaseAddress from NavigationManager so it works on any port/host
             http.BaseAddress = new Uri(Nav.BaseUri);
 
+            // _messages already contains the current user msg + empty assistant placeholder at the tail;
+            // skip them and send the preceding turns as context for follow-up routing.
+            var history = _messages
+                .SkipLast(2)
+                .TakeLast(10)
+                .Select(m => new { role = m.Role, content = m.Text, pipeline = m.Pipeline })
+                .ToList();
+
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/chat")
             {
-                Content = JsonContent.Create(new { message = userMsg })
+                Content = JsonContent.Create(new { message = userMsg, history })
             };
             using var resp = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead,
                 sendCts.Token);
