@@ -103,8 +103,13 @@
     private static readonly MarkdownPipeline MdPipeline =
         new MarkdownPipelineBuilder().DisableHtml().UseAdvancedExtensions().Build();
 
-    private static string RenderMd(string text) =>
-        string.IsNullOrEmpty(text) ? "" : Markdown.ToHtml(text, MdPipeline);
+    private static string RenderMd(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        var html = Markdown.ToHtml(text, MdPipeline);
+        // Open all rendered links in a new tab (entity detail links and citation links)
+        return html.Replace("<a href=", "<a target=\"_blank\" rel=\"noopener noreferrer\" href=");
+    }
 
     private sealed record ChatMsg(
         string Role,
