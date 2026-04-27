@@ -36,7 +36,7 @@ docker compose up -d
 
 # 3. Pull LLM and embedding models into Ollama (~5 GB total, one-time)
 docker exec ollama ollama pull qwen3:8b
-docker exec ollama ollama pull bge-small-en-v1.5
+docker exec ollama ollama pull all-minilm
 
 # 4. Start the RAG server
 cd src/RagServer
@@ -61,7 +61,7 @@ Open in your browser:
 |---|---|
 | Runtime | .NET 10 |
 | Web + UI | ASP.NET Core minimal APIs + Blazor Server |
-| LLM | Ollama — Qwen3 8B Q4_K_M (chat), bge-small-en-v1.5 (embeddings) |
+| LLM | Ollama — Qwen3 8B Q4_K_M (chat), all-minilm (embeddings, 384-dim) |
 | Vector + search | Elasticsearch 9.x — BM25 + kNN RRF hybrid |
 | SQL catalog | EF Core 9 on SQL Server 2022 (Developer Edition) |
 | MongoDB | Business rules store (36 rules across 6 MDM entities) |

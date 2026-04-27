@@ -51,8 +51,8 @@ Expected output: all 7 services (`ollama`, `elasticsearch`, `mssql`, `mongodb`, 
 # Chat model (Qwen3 8B, ~5 GB after quantization)
 docker exec ollama ollama pull qwen3:8b
 
-# Embedding model (bge-small-en-v1.5, ~300 MB)
-docker exec ollama ollama pull bge-small-en-v1.5
+# Embedding model (all-minilm / all-MiniLM-L6-v2, ~46 MB, 384-dim)
+docker exec ollama ollama pull all-minilm
 ```
 
 Both pulls may take 5–10 minutes depending on network. You can proceed to the next step while they download in the background.
@@ -231,7 +231,7 @@ After running a query in the Chat tab:
 3. **The trace shows:**
    - **HTTP** — entire request from Chat UI to server response.
    - **Router** — intent classification (docs/metadata/data).
-   - **Embedding** — query vectorization via `bge-small-en-v1.5` (1–2 ms GPU time).
+   - **Embedding** — query vectorization via `all-minilm` (1–2 ms GPU time).
    - **Elasticsearch retrieval** — BM25 + kNN search or DSL compilation (varies 10–100 ms).
    - **LLM call** — Qwen3 inference (typically 1–3 s for chat, 200–500 ms for IR generation).
    - **Tool calls** (UC-2 only) — SQL/Mongo catalog lookups, stacked sequentially.
@@ -260,7 +260,7 @@ Click **Metrics** in the dashboard to see custom RagMetrics:
 ```bash
 docker exec ollama ollama list
 ```
-Should show `qwen3:8b` and `bge-small-en-v1.5` with a date. If either is missing, re-run the pull commands in §2.2.
+Should show `qwen3:8b` and `all-minilm` with a date. If either is missing, re-run the pull commands in §2.2.
 
 ### 6.2 Elasticsearch not ready (`ConnectionRefused`, `HTTP 503`)
 

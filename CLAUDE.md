@@ -21,7 +21,7 @@ All LLM inference runs locally via **Ollama** (Qwen3 8B/14B Q4_K_M). Orchestrati
 | LLM abstraction | `Microsoft.Extensions.AI` (`IChatClient`, `IEmbeddingGenerator`) |
 | LLM backend | Ollama via `OllamaSharp` |
 | Chat model | Qwen3 8B Q4_K_M (default), 14B on 16 GB GPU |
-| Embedding model | bge-small-en-v1.5 (384 dims) |
+| Embedding model | all-minilm (384 dims, all-MiniLM-L6-v2) |
 | Vector + search | Elasticsearch 9.x (`Elastic.Clients.Elasticsearch` 9.x) |
 | SQL catalog | EF Core 9 on SQL Server |
 | Mongo extension | `MongoDB.Driver` |
@@ -97,7 +97,7 @@ docker compose up -d
 docker exec ollama ollama pull qwen3:8b
 
 # Pull the embedding model
-docker exec ollama ollama pull bge-small-en-v1.5
+docker exec ollama ollama pull all-minilm
 
 # Run the RAG server (from src/RagServer/)
 dotnet run
