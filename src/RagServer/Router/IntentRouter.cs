@@ -15,7 +15,7 @@ public sealed class IntentRouter
     [
         (new Regex(@"\b(rules?|validations?|constraints?|mandatory\s+(field|attribute|rule)|data\s+owner|governance\s+owner|attributes?|fields?|columns?|schema|cde|critical data elements?|entity|entities|metadata)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled), PipelineKind.Metadata),
-        (new Regex(@"\b(give me all|list all|show me|find all|records?|count of|how many|how much|number of|fetch|get all|top \d+)\b",
+        (new Regex(@"\b(give me all|list all|show me|find all|records?|count of|how many|how much|number of|fetch|get all|top \d+|count|aggregate|filter by|search for|query the)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled), PipelineKind.Data),
         (new Regex(@"\b(how|what is|what are|explain|describe|definition|purpose|guide|tutorial|overview)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled), PipelineKind.Docs),
@@ -64,7 +64,7 @@ public sealed class IntentRouter
         // 3. Model fallback
         var prompt = $"""
             Classify the following query as exactly one of: docs, metadata, data.
-            Reply with only the single word.
+            Reply with only the single word. /no_think
             <user_query>{query}</user_query>
             """;
 

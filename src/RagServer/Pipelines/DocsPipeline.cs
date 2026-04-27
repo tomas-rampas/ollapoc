@@ -44,15 +44,14 @@ public sealed class DocsPipeline(
             ? query
             : $"{passagesText}\n\nQuestion: {query}";
 
+        // Qwen3: /no_think disables chain-of-thought for this turn; grounded RAG over
+        // numbered passages requires no reasoning — direct extraction and citation only.
         var messages = new List<ChatMessage>
         {
             new(ChatRole.System, SystemPrompt),
-            new(ChatRole.User,   userContent)
+            new(ChatRole.User,   userContent + " /no_think")
         };
 
-        // No MaxOutputTokens: Qwen3 think blocks can be hundreds of tokens and truncating
-        // them mid-block causes ThinkStripper to buffer indefinitely without ever emitting.
-        // The passage context already bounds total token cost.
         var chatOpts = new ChatOptions();
 
         // Stream answer tokens as SSE data events, stripping any <think>…</think> block
