@@ -87,9 +87,35 @@ builder.Services.Configure<MongoOptions>(o =>
     o.RulesCollection         = builder.Configuration["MONGO_RULES_COLLECTION"]      ?? o.RulesCollection;
 });
 
-builder.Services.Configure<ConfluenceOptions>(builder.Configuration.GetSection("Confluence"));
-builder.Services.Configure<JiraOptions>(builder.Configuration.GetSection("Jira"));
-builder.Services.Configure<IngestionOptions>(builder.Configuration.GetSection("Ingestion"));
+builder.Services.Configure<ConfluenceOptions>(o =>
+{
+    o.BaseUrl         = builder.Configuration["CONFLUENCE_BASE_URL"]        ?? o.BaseUrl;
+    o.Username        = builder.Configuration["CONFLUENCE_USERNAME"]        ?? o.Username;
+    o.ApiToken        = builder.Configuration["CONFLUENCE_API_TOKEN"]       ?? o.ApiToken;
+    var spaces        = builder.Configuration["CONFLUENCE_SPACES"];
+    if (!string.IsNullOrEmpty(spaces))
+        o.Spaces = spaces.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    o.IncrementalCron = builder.Configuration["CONFLUENCE_INCREMENTAL_CRON"] ?? o.IncrementalCron;
+    o.FullSyncCron    = builder.Configuration["CONFLUENCE_FULL_SYNC_CRON"]   ?? o.FullSyncCron;
+    if (int.TryParse(builder.Configuration["CONFLUENCE_RATE_LIMIT_RPS"], out var cfRps)) o.RateLimitRps = cfRps;
+});
+builder.Services.Configure<JiraOptions>(o =>
+{
+    o.BaseUrl         = builder.Configuration["JIRA_BASE_URL"]        ?? o.BaseUrl;
+    o.Username        = builder.Configuration["JIRA_USERNAME"]        ?? o.Username;
+    o.ApiToken        = builder.Configuration["JIRA_API_TOKEN"]       ?? o.ApiToken;
+    var projects      = builder.Configuration["JIRA_PROJECTS"];
+    if (!string.IsNullOrEmpty(projects))
+        o.Projects = projects.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    o.IncrementalCron = builder.Configuration["JIRA_INCREMENTAL_CRON"] ?? o.IncrementalCron;
+    if (int.TryParse(builder.Configuration["JIRA_RATE_LIMIT_RPS"], out var jiraRps)) o.RateLimitRps = jiraRps;
+});
+builder.Services.Configure<IngestionOptions>(o =>
+{
+    if (int.TryParse(builder.Configuration["INGESTION_CHUNK_TARGET_TOKENS"], out var ct))  o.ChunkTargetTokens  = ct;
+    if (int.TryParse(builder.Configuration["INGESTION_CHUNK_OVERLAP_TOKENS"], out var co)) o.ChunkOverlapTokens = co;
+    if (int.TryParse(builder.Configuration["INGESTION_BATCH_EMBED_SIZE"],     out var bs)) o.BatchEmbedSize     = bs;
+});
 
 var abTestEnabled = builder.Configuration["AB_TEST_ENABLED"]?.ToLowerInvariant() == "true";
 builder.Services.Configure<AbTestOptions>(o =>
