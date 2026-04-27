@@ -77,15 +77,21 @@ In your browser:
 
 Leave both tabs open during the demo. Switch to the dashboard tab when you want to show the trace timeline.
 
-### 2.5 First-time only: Index Confluence Mock Pages
+### 2.5 First-time only: Index Confluence Mock Pages and Enable Trial License
 
-Run once after first boot (or after `docker compose down -v`):
+Run both commands once after first boot (or after `docker compose down -v`):
 
 ```bash
+# Index the 15 MDM documentation pages into Elasticsearch
 curl -X POST http://localhost:8080/admin/reindex?source=confluence
+
+# Enable Elasticsearch 30-day trial license (required for RRF hybrid search)
+curl -X POST -u elastic:changeme http://localhost:9200/_license/start_trial?acknowledge=true
 ```
 
-Wait ~30 seconds. This crawls the 15 MDM documentation pages from the Confluence mock and indexes them into Elasticsearch. The `docs` pipeline (UC-1) will return empty results until this step completes.
+Wait ~30 seconds for the reindex. The trial license activates immediately.
+
+> **Why the trial license?** The Docs pipeline (UC-1) uses Elasticsearch's RRF (Reciprocal Rank Fusion) retriever for hybrid BM25 + kNN search. RRF requires an Enterprise license; the 30-day trial unlocks it. Without it, all UC-1 Docs queries return HTTP 403 from Elasticsearch. The `elastic` superuser credentials are `elastic:changeme` (set via `ES_PASSWORD` in `.env`).
 
 ### 2.6 Reset after SQL schema changes
 
@@ -262,7 +268,22 @@ docker exec ollama ollama list
 ```
 Should show `qwen3:8b` and `all-minilm` with a date. If either is missing, re-run the pull commands in §2.2.
 
-### 6.2 Elasticsearch not ready (`ConnectionRefused`, `HTTP 503`)
+### 6.2 Docs pipeline returns empty / `HTTP 403` from Elasticsearch
+
+**Cause:** The Elasticsearch trial license has not been activated (or expired / was wiped by `docker compose down -v`). The RRF hybrid retriever requires an Enterprise license.
+
+**Solution:**
+```bash
+curl -X POST -u elastic:changeme http://localhost:9200/_license/start_trial?acknowledge=true
+```
+Expected response: `{"acknowledged":true,"trial_was_started":true,"type":"trial"}`. Retry the query immediately — no restart required.
+
+To verify the current license:
+```bash
+curl -s -u elastic:changeme http://localhost:9200/_license | python -m json.tool
+```
+
+### 6.3 Elasticsearch not ready (`ConnectionRefused`, `HTTP 503`)
 
 **Cause:** ES container is initializing (typical on first startup, ~20 seconds).
 

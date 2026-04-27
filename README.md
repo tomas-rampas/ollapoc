@@ -46,6 +46,13 @@ dotnet run
 # 5. Index the Confluence mock pages (first time only)
 curl -X POST http://localhost:8080/admin/reindex?source=confluence
 # Wait ~30 s — indexes 15 MDM documentation pages into Elasticsearch
+
+# 6. Enable the Elasticsearch trial license (required for RRF hybrid search)
+curl -X POST -u elastic:changeme http://localhost:9200/_license/start_trial?acknowledge=true
+# Activates a 30-day Enterprise trial — unlocks the RRF (Reciprocal Rank Fusion)
+# retriever used by the Docs pipeline for hybrid BM25 + kNN search.
+# Without this, UC-1 Docs queries return HTTP 403 from Elasticsearch.
+# The trial must be re-enabled after docker compose down -v (volume wipe resets the license).
 ```
 
 Open in your browser:
@@ -98,6 +105,8 @@ If you update the SQL catalog schema, drop the persistent volumes to let `Ensure
 docker compose down -v
 docker compose up -d
 ```
+
+Then repeat Quickstart steps 5 and 6 — the volume wipe clears both the `docs` index and the ES trial license.
 
 ---
 
