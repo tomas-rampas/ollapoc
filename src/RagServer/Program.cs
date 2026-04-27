@@ -11,6 +11,7 @@ using OpenTelemetry.Trace;
 using RagServer.Compiler;
 using RagServer.Endpoints;
 using RagServer.Infrastructure;
+using RagServer.Infrastructure.Business;
 using RagServer.Infrastructure.Catalog;
 using RagServer.Ingestion;
 using RagServer.Options;
@@ -219,9 +220,15 @@ builder.Services.AddAuthorization();
 // ── EF Core ───────────────────────────────────────────────────────────────────
 var connStr = builder.Configuration["SQL_CONNECTION_STRING"];
 if (string.IsNullOrWhiteSpace(connStr))
+{
     builder.Services.AddDbContextPool<CatalogDbContext>(o => o.UseInMemoryDatabase("dev"));
+    builder.Services.AddDbContext<BusinessDataContext>(o => o.UseInMemoryDatabase("business-dev"));
+}
 else
+{
     builder.Services.AddDbContextPool<CatalogDbContext>(o => o.UseSqlServer(connStr));
+    builder.Services.AddDbContext<BusinessDataContext>(o => o.UseSqlServer(connStr));
+}
 
 // ── MongoDB (optional — graceful degradation when MONGO_CONNECTION_STRING is absent) ────
 if (string.IsNullOrWhiteSpace(mongoConnStr))
@@ -250,11 +257,13 @@ builder.Services.AddScoped<CatalogTools>();
 builder.Services.AddScoped<MetadataPipeline>();
 
 // ── Data pipeline (UC-3) ─────────────────────────────────────────────────────────────────
-// QuerySpecValidator and IrToDslCompiler are pure/stateless — Singleton.
-// DataPipeline captures CatalogDbContext (Scoped) — must be Scoped.
+// QuerySpecValidator, IrToDslCompiler, QuerySpecToSqlCompiler are pure/stateless — Singleton.
+// DataPipeline and SqlDataPipeline capture Scoped DbContexts — must be Scoped.
 builder.Services.AddSingleton<QuerySpecValidator>();
 builder.Services.AddSingleton<IrToDslCompiler>();
+builder.Services.AddSingleton<QuerySpecToSqlCompiler>();
 builder.Services.AddScoped<DataPipeline>();
+builder.Services.AddScoped<SqlDataPipeline>();
 
 // ── Demo queries ──────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<DemoQueriesService>();
@@ -288,6 +297,9 @@ builder.Services.AddHostedService<CatalogIndexBootstrapper>();
 // ── Catalog schema bootstrap (creates SQL Server schema on first run) ──────────
 builder.Services.AddHostedService<CatalogSchemaBootstrapper>();
 builder.Services.AddHostedService<OperationalDataSeeder>();
+
+// ── Business data bootstrap (creates business tables + seed data on first run) ─
+builder.Services.AddHostedService<BusinessDataBootstrapper>();
 
 // ── Blazor / Razor Components ─────────────────────────────────────────────────
 builder.Services.AddRazorComponents()

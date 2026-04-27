@@ -1,33 +1,30 @@
+using System.Data;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Elastic.Clients.Elasticsearch;
-using Elastic.Clients.Elasticsearch.IndexManagement;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RagServer.Compiler;
-using RagServer.Infrastructure.Catalog;
+using RagServer.Infrastructure.Business;
 using RagServer.Options;
 using RagServer.Telemetry;
 
 namespace RagServer.Pipelines;
 
 /// <summary>
-/// UC-3 Data Pipeline: NL → QuerySpec IR → IrToDslCompiler → ES validate → ES search → SSE.
-/// One retry on parse failure, validation failure, or ES validation failure.
+/// UC-3 SQL Data Pipeline: NL → QuerySpec IR → QuerySpecToSqlCompiler → SQL Server → SSE.
+/// Mirrors <see cref="DataPipeline"/> structure but executes parameterized SQL instead of
+/// Elasticsearch DSL, targeting the <see cref="BusinessDataContext"/> tables.
 /// </summary>
-public sealed class DataPipeline(
-    CatalogDbContext db,
+public sealed class SqlDataPipeline(
+    BusinessDataContext db,
     [FromKeyedServices("chat")] IChatClient chatClient,
-    ElasticsearchClient es,
-    IrToDslCompiler compiler,
+    QuerySpecToSqlCompiler compiler,
     QuerySpecValidator validator,
     IOptions<RagOptions> opts,
-    ILogger<DataPipeline> logger,
+    ILogger<SqlDataPipeline> logger,
     IOptions<OllamaOptions> ollamaOpts)
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -45,24 +42,15 @@ public sealed class DataPipeline(
 
     public async Task ExecuteAsync(string query, HttpResponse response, CancellationToken ct)
     {
-        using var activity = RagActivitySource.Source.StartActivity("rag.data_pipeline");
+        using var activity = RagActivitySource.Source.StartActivity("rag.sql_data_pipeline");
         var sw = Stopwatch.StartNew();
 
-        // ── Schema context from CatalogDbContext ──────────────────────────────
-        var entities = await db.CatalogEntities
-            .Include(e => e.Attributes)
-            .ToListAsync(ct);
-
-        var knownEntities = entities
-            .Select(e => e.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        var schemaContext = BuildSchemaContext(entities);
+        // ── Schema context from static dictionary ─────────────────────────────
+        var knownEntities = QuerySpecToSqlCompiler.Schema.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var schemaContext = BuildSchemaContext();
 
         // ── Build prompt ──────────────────────────────────────────────────────
         var systemPrompt = BuildSystemPrompt(schemaContext);
-        // Qwen3: /no_think disables chain-of-thought; ExtractJson already strips any think
-        // block before parsing, so reasoning here is wasted latency (13 t/s × 1500 = 115s timeout).
         var messages = new List<ChatMessage>
         {
             new(ChatRole.System, systemPrompt),
@@ -73,7 +61,7 @@ public sealed class DataPipeline(
         var maxRetries = Math.Max(0, opts.Value.DataMaxRetries);
 
         QuerySpec? spec = null;
-        SearchRequest? compiledRequest = null;
+        SqlQueryResult? compiledQuery = null;
         string? lastError = null;
         bool? irValidFirstTry = null;
 
@@ -136,42 +124,26 @@ public sealed class DataPipeline(
                 continue;
             }
 
-            // Compile and ES-validate the query
-            SearchRequest searchRequest;
+            // Compile to SQL
             try
             {
-                searchRequest = compiler.Compile(spec);
+                compiledQuery = compiler.Compile(spec);
             }
-            catch (Exception ex)
+            catch (CompilerException ex)
             {
-                logger.LogWarning(ex, "IrToDslCompiler failed on attempt {Attempt}", attempt);
+                logger.LogWarning(ex, "QuerySpecToSqlCompiler failed on attempt {Attempt}", attempt);
                 lastError = $"Compiler error: {ex.Message}";
                 spec = null;
                 continue;
             }
 
-            var validateResp = await es.Indices.ValidateQueryAsync(
-                new ValidateQueryRequest(searchRequest.Indices!)
-                {
-                    Query = searchRequest.Query
-                }, ct);
-
-            if (!validateResp.IsValidResponse || !validateResp.Valid)
-            {
-                lastError = "Generated query failed ES validation.";
-                logger.LogWarning("ES validation failed on attempt {Attempt}", attempt);
-                spec = null;
-                continue;
-            }
-
-            // Spec is valid — break out and execute
+            // Spec and query are valid — break
             irValidFirstTry = attempt == 0;
-            compiledRequest = searchRequest;
             break;
         }
 
         // ── Stream answer ─────────────────────────────────────────────────────
-        if (spec is null)
+        if (spec is null || compiledQuery is null)
         {
             sw.Stop();
             const string fallback = "I could not generate a valid data query for your question.";
@@ -183,50 +155,88 @@ public sealed class DataPipeline(
 
         activity?.SetTag("rag.data.entity", spec.Entity);
 
-        // Emit the query_spec metadata event
+        // Emit query_spec metadata event
         var specJson = JsonSerializer.Serialize(spec, JsonOpts);
         await response.WriteAsync($"event: query_spec\ndata: {EscapeSse(specJson)}\n\n", ct);
         await response.Body.FlushAsync(ct);
 
-        // Execute the search (reuse compiled request — no second Compile call)
-        var esSw = Stopwatch.StartNew();
-        var searchResp = await es.SearchAsync<JsonElement>(compiledRequest!, ct);
-        esSw.Stop();
-        RagMetrics.EsSearchDurationMs.Record(esSw.ElapsedMilliseconds,
-            new KeyValuePair<string, object?>("pipeline", "Data"));
-
-        if (!searchResp.IsValidResponse)
+        // Execute the SQL query
+        var sqlSw = Stopwatch.StartNew();
+        List<Dictionary<string, string>> rows;
+        try
         {
+            rows = await ExecuteSqlAsync(compiledQuery, ct);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "SQL execution failed");
             sw.Stop();
-            const string msg = "Search query returned an error.";
+            const string msg = "SQL query returned an error.";
             await response.WriteAsync($"data: {msg}\n\n", ct);
             await response.Body.FlushAsync(ct);
             await EmitStatsAsync(response, sw.ElapsedMilliseconds, irValidFirstTry, totalResultRows: null, ct);
             return;
         }
+        sqlSw.Stop();
+        RagMetrics.EsSearchDurationMs.Record(sqlSw.ElapsedMilliseconds,
+            new KeyValuePair<string, object?>("pipeline", "SqlData"));
 
-        var totalRows = searchResp.Hits.Count;
-        var formatted = FormatResults(searchResp, spec);
+        var formatted = FormatResults(rows, spec);
         await response.WriteAsync($"data: {EscapeSse(formatted)}\n\n", ct);
         await response.Body.FlushAsync(ct);
 
         sw.Stop();
-        await EmitStatsAsync(response, sw.ElapsedMilliseconds, irValidFirstTry, totalResultRows: totalRows, ct);
+        await EmitStatsAsync(response, sw.ElapsedMilliseconds, irValidFirstTry, totalResultRows: rows.Count, ct);
     }
+
+    // ── SQL execution ─────────────────────────────────────────────────────────
+
+    private async Task<List<Dictionary<string, string>>> ExecuteSqlAsync(
+        SqlQueryResult query, CancellationToken ct)
+    {
+        var results = new List<Dictionary<string, string>>();
+
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != ConnectionState.Open)
+            await conn.OpenAsync(ct);
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = query.Sql;
+        foreach (var p in query.Parameters)
+            cmd.Parameters.Add(p);
+
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var row = new Dictionary<string, string>(reader.FieldCount);
+            for (var i = 0; i < reader.FieldCount; i++)
+            {
+                var colName = reader.GetName(i);
+                var val = reader.IsDBNull(i) ? "" : reader.GetValue(i)?.ToString() ?? "";
+                row[colName] = val;
+            }
+            results.Add(row);
+        }
+
+        return results;
+    }
+
+    // ── Stats ─────────────────────────────────────────────────────────────────
 
     private async Task EmitStatsAsync(
         HttpResponse response, long latencyMs, bool? irValidFirstTry, int? totalResultRows,
         CancellationToken ct)
     {
         RagMetrics.RequestDurationMs.Record(latencyMs,
-            new KeyValuePair<string, object?>("pipeline", "Data"),
+            new KeyValuePair<string, object?>("pipeline", "SqlData"),
             new KeyValuePair<string, object?>("model", ollamaOpts.Value.ChatModel));
         if (irValidFirstTry == true)
             RagMetrics.IrFirstTrySuccess.Add(1,
                 new KeyValuePair<string, object?>("model", ollamaOpts.Value.ChatModel));
 
         var stats = new PipelineResult(
-            Pipeline:       "Data",
+            Pipeline:       "SqlData",
             LatencyMs:      latencyMs,
             ModelName:      ollamaOpts.Value.ChatModel,
             IrValidFirstTry: irValidFirstTry,
@@ -239,15 +249,14 @@ public sealed class DataPipeline(
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static string BuildSchemaContext(
-        IEnumerable<RagServer.Infrastructure.Catalog.Entities.CatalogEntity> entities)
+    private static string BuildSchemaContext()
     {
         var sb = new StringBuilder();
-        foreach (var entity in entities)
+        foreach (var (entity, columns) in QuerySpecToSqlCompiler.Schema)
         {
-            sb.AppendLine($"Entity: {entity.Name}");
-            foreach (var attr in entity.Attributes)
-                sb.AppendLine($"  - {attr.AttributeCode} ({attr.DataType})");
+            sb.AppendLine($"Entity: {entity}");
+            foreach (var (col, dataType) in columns)
+                sb.AppendLine($"  - {col} ({dataType})");
         }
         return sb.ToString();
     }
@@ -280,7 +289,7 @@ public sealed class DataPipeline(
         {{schemaContext}}
 
         Example:
-        { "Entity": "Counterparty", "Filters": [{"Field": "status", "Operator": "Eq", "Value": "Active"}], "TimeRange": null, "Sort": [{"Field": "name", "Direction": "Asc"}], "Aggregations": [], "Limit": 10 }
+        { "Entity": "Counterparty", "Filters": [{"Field": "status", "Operator": "Eq", "Value": "Active"}], "TimeRange": null, "Sort": [{"Field": "legal_name", "Direction": "Asc"}], "Aggregations": [], "Limit": 10 }
         """;
 
     private static readonly System.Text.RegularExpressions.Regex ThinkPattern =
@@ -290,13 +299,10 @@ public sealed class DataPipeline(
 
     private static string ExtractJson(string text)
     {
-        // Remove Qwen3 <think>...</think> block (reasoning contains {} that confuse JSON extraction)
         text = ThinkPattern.Replace(text, "").TrimStart();
-        // Discard anything after an unclosed <think> tag (truncated mid-think)
         var thinkIdx = text.IndexOf("<think>", StringComparison.OrdinalIgnoreCase);
         if (thinkIdx >= 0) text = text[..thinkIdx];
 
-        // Strip optional markdown code fences
         var trimmed = text.Trim();
         if (trimmed.StartsWith("```"))
         {
@@ -307,38 +313,28 @@ public sealed class DataPipeline(
             trimmed = trimmed.Trim();
         }
 
-        // Find the first '{' and last '}'
         var start = trimmed.IndexOf('{');
         var end   = trimmed.LastIndexOf('}');
         return start >= 0 && end > start ? trimmed[start..(end + 1)] : string.Empty;
     }
 
-    private static string FormatResults(SearchResponse<JsonElement> resp, QuerySpec spec)
+    private static string FormatResults(List<Dictionary<string, string>> rows, QuerySpec spec)
     {
-        if (!resp.Hits.Any())
+        if (rows.Count == 0)
             return $"No results found for {spec.Entity}.";
 
-        var validHits = resp.Hits
-            .Where(h => h.Source is { ValueKind: not JsonValueKind.Undefined })
-            .Select(h => h.Source)
-            .ToList();
-
-        if (validHits.Count == 0)
-            return $"Found {resp.Total} {spec.Entity} records (no source data available).";
-
-        // Collect columns from first hit
-        var columns = validHits[0].EnumerateObject().Select(p => p.Name).ToList();
+        var columns = rows[0].Keys.ToList();
         if (columns.Count == 0)
-            return $"Found {resp.Total} {spec.Entity} records.";
+            return $"Found {rows.Count} {spec.Entity} records.";
 
-        // Detect the primary ID field for clickable links
+        // Detect primary ID field for clickable links
         var entityLower = spec.Entity.ToLower();
         var idField = columns.FirstOrDefault(c => c.Equals($"{entityLower}_id", StringComparison.OrdinalIgnoreCase))
                       ?? columns.FirstOrDefault(c => c.Equals("id", StringComparison.OrdinalIgnoreCase))
                       ?? columns.FirstOrDefault(c => c.EndsWith("_id", StringComparison.OrdinalIgnoreCase));
 
         var sb = new StringBuilder();
-        sb.AppendLine($"Found {resp.Total} **{spec.Entity}** records:");
+        sb.AppendLine($"Found {rows.Count} **{spec.Entity}** records:");
         sb.AppendLine();
 
         // Table header
@@ -346,28 +342,17 @@ public sealed class DataPipeline(
         sb.AppendLine("| " + string.Join(" | ", columns.Select(_ => "---")) + " |");
 
         // Table rows
-        foreach (var src in validHits)
+        foreach (var row in rows)
         {
             var cells = columns.Select<string, string>(col =>
             {
-                if (!src.TryGetProperty(col, out var val)) return "";
-                var raw = val.ValueKind == JsonValueKind.String
-                    ? val.GetString() ?? ""
-                    : val.ToString();
+                var raw = row.TryGetValue(col, out var v) ? v : "";
                 raw = EscapeCell(raw);
                 if (idField != null && col.Equals(idField, StringComparison.OrdinalIgnoreCase))
                     return $"[{raw}](/entity/{spec.Entity}/{raw})";
                 return raw;
             });
             sb.AppendLine("| " + string.Join(" | ", cells) + " |");
-        }
-
-        if (resp.Aggregations?.Count > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine("**Aggregations:**");
-            foreach (var kv in resp.Aggregations)
-                sb.AppendLine($"- {kv.Key}: {kv.Value}");
         }
 
         return sb.ToString().TrimEnd();

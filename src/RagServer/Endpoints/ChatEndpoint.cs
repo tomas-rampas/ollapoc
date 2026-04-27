@@ -17,7 +17,8 @@ public static class ChatEndpoint
         LlmRequestQueue queue,
         DocsPipeline docsPipeline,
         MetadataPipeline metadataPipeline,
-        DataPipeline dataPipeline)
+        DataPipeline dataPipeline,
+        SqlDataPipeline sqlDataPipeline)
     {
         // Validate input before committing to any response
         if (string.IsNullOrEmpty(req.Message))
@@ -63,7 +64,9 @@ public static class ChatEndpoint
                 }
                 else
                 {
-                    await dataPipeline.ExecuteAsync(req.Message, ctx.Response, ct);
+                    // Route all Data queries to SqlDataPipeline (SQL Server).
+                    // DataPipeline (Elasticsearch) is kept for reference but not used for routing.
+                    await sqlDataPipeline.ExecuteAsync(req.Message, ctx.Response, ct);
                 }
                 await ctx.Response.WriteAsync("data: [DONE]\n\n", ct);
                 await ctx.Response.Body.FlushAsync(ct);
