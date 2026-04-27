@@ -29,19 +29,21 @@ A step-by-step guide to running the live AI Knowledge Assistant demo on a develo
 
 ## 2. Startup Sequence
 
-### 2.1 Start Infrastructure (Ollama, Elasticsearch, Aspire Dashboard)
+### 2.1 Start Infrastructure (all 7 services)
 
 ```bash
 docker compose up -d
 ```
 
-Wait for all containers to become healthy (~30 seconds). Verify:
+Wait for all containers to become healthy. Verify:
 
 ```bash
 docker compose ps
 ```
 
-Expected output: all 4 services with status `Up`.
+Expected output: all 7 services (`ollama`, `elasticsearch`, `mssql`, `mongodb`, `confluence-mock`, `rag-server`, `aspire-dashboard`) with status `Up (healthy)`.
+
+> **Note:** `mssql` and `mongodb` perform first-boot initialisation (schema creation and seed data). Allow up to 60 seconds on a cold start.
 
 ### 2.2 Pull LLM and Embedding Models into Ollama
 
@@ -71,109 +73,142 @@ In your browser:
 
 - **Chat UI:** `http://localhost:8080/` — Blazor server component with streaming messages and stats panel
 - **Aspire Dashboard:** `http://localhost:18888` — OpenTelemetry traces, metrics, logs
+- **Confluence mock:** `http://localhost:8090/wiki/spaces/MDM/pages/1002` — verify citation links are reachable
 
 Leave both tabs open during the demo. Switch to the dashboard tab when you want to show the trace timeline.
+
+### 2.5 First-time only: Index Confluence Mock Pages
+
+Run once after first boot (or after `docker compose down -v`):
+
+```bash
+curl -X POST http://localhost:8080/admin/reindex?source=confluence
+```
+
+Wait ~30 seconds. This crawls the 15 MDM documentation pages from the Confluence mock and indexes them into Elasticsearch. The `docs` pipeline (UC-1) will return empty results until this step completes.
+
+### 2.6 Reset after SQL schema changes
+
+If the SQL Server catalog schema was changed (new entities, attributes, or EF model changes), drop the persistent volumes and restart:
+
+```bash
+docker compose down -v
+docker compose up -d
+```
+
+Then repeat steps 2.2–2.5. The `mssql` container re-runs `EnsureCreatedAsync` on first boot and seeds all 10 MDM entities and 162 attributes.
 
 ---
 
 ## 3. Pre-Warming the Embedding Cache
 
-Before the live demo, pre-warm the embedding cache by routing all 9 demo queries through the `IntentRouter`. This ensures the first set of user queries snap instantly.
+Before the live demo, pre-warm the embedding cache by routing all 18 curated demo queries through the `IntentRouter`. This ensures the first set of user queries snap instantly.
 
 ```bash
 curl -X POST http://localhost:8080/demo/warmup
 ```
 
-Expected response (200 OK):
+Expected response (200 OK) — 18 queries, 6 per pipeline:
 
 ```json
 {
-  "warmed": 9,
+  "warmed": 18,
   "queries": [
-    { "query": "What is the settlement fail reason for STP trades?", "pipeline": "Docs" },
-    { "query": "How does the reconciliation process work?", "pipeline": "Docs" },
-    { "query": "What counterparty data is required for trade booking?", "pipeline": "Docs" },
-    { "query": "What attributes does the Trade entity have?", "pipeline": "Metadata" },
-    { "query": "Show me all critical data elements for Settlement", "pipeline": "Metadata" },
-    { "query": "What relationships does Counterparty have?", "pipeline": "Metadata" },
+    { "query": "What is a counterparty in financial services?",                  "pipeline": "Docs" },
+    { "query": "How does KYC onboarding work?",                                  "pipeline": "Docs" },
+    { "query": "What is a DVP settlement instruction?",                          "pipeline": "Docs" },
+    { "query": "What are trading books and banking books?",                      "pipeline": "Docs" },
+    { "query": "How is FATCA status determined for a counterparty?",             "pipeline": "Docs" },
+    { "query": "What is a Critical Data Element?",                               "pipeline": "Docs" },
+    { "query": "What are the mandatory attributes for Book?",                    "pipeline": "Metadata" },
+    { "query": "Who is the data owner of Legal Name for Client Account?",        "pipeline": "Metadata" },
+    { "query": "What rules are defined for Counterparty?",                       "pipeline": "Metadata" },
+    { "query": "What are the mandatory rules for Settlement Instruction?",       "pipeline": "Metadata" },
+    { "query": "What critical data elements does Currency have?",                "pipeline": "Metadata" },
+    { "query": "What relationships does Counterparty have?",                     "pipeline": "Metadata" },
     { "query": "Show me the top 10 trades with status FAILED sorted by amount descending", "pipeline": "Data" },
-    { "query": "How many trades were settled last month?", "pipeline": "Data" },
-    { "query": "List all counterparties with more than 5 active trades", "pipeline": "Data" }
+    { "query": "How many trades were settled last month?",                       "pipeline": "Data" },
+    { "query": "List all counterparties with more than 5 active trades",         "pipeline": "Data" },
+    { "query": "What were the total notional amounts by currency last quarter?", "pipeline": "Data" },
+    { "query": "Show me all settlement failures in the last 7 days",            "pipeline": "Data" },
+    { "query": "Find all open trades where notional exceeds 1 million",         "pipeline": "Data" }
   ]
 }
 ```
 
-The embedding cache is now primed with these common queries. Subsequent identical queries will be served from the in-process LRU cache.
+The embedding cache is now primed with these queries. Subsequent identical queries are served from the in-process LRU cache.
 
 ---
 
 ## 4. Demo Script — Sample Queries by Pipeline
 
-### UC-1: Documentation Q&A (Confluence/Jira)
+### UC-1: Documentation Q&A (Confluence MDM pages)
 
-Demonstrates RAG: hybrid search (BM25 + dense vector) → grounded generation → citations.
+Demonstrates RAG: hybrid BM25 + kNN search → grounded generation → **clickable citation links** to the Confluence mock.
 
-**Query 1 (foundational):**
+**Query 1:**
 ```
-What is a counterparty and what is its purpose?
+What is a counterparty in financial services?
 ```
-**Expected answer type:** Glossary-style definition extracted from Confluence documentation. Should cite the source page.
+**Expected:** Definition from the Counterparty Data Model page (`http://localhost:8090/wiki/spaces/MDM/pages/1002`). Citation link appears below the answer.
 
-**Query 2 (operational):**
+**Query 2:**
 ```
-How does the reconciliation process work?
+How does KYC onboarding work?
 ```
-**Expected answer type:** Step-by-step workflow from ingested Jira workflows or Confluence process docs.
+**Expected:** Onboarding workflow steps from the KYC page, with citation link to page 1009.
 
-**Query 3 (integration):**
+**Query 3:**
 ```
-What data fields are required to book a trade?
+How is FATCA status determined for a counterparty?
 ```
-**Expected answer type:** List of mandatory fields with types (pulled from schema docs or Confluence pages).
+**Expected:** FATCA classification rules from the FATCA and Tax Compliance page (1014), with citation.
 
-### UC-2: Metadata Queries (SQL + MongoDB Catalog)
+> Citation links are always visible below each Docs answer. Clicking them opens the rendered page from the Confluence mock.
 
-Demonstrates function-calling: model invokes catalog tools → SQL/Mongo queries → structured results.
+### UC-2: Metadata Queries (SQL Server + MongoDB Catalog)
 
-**Query 1 (entity introspection):**
+Demonstrates function-calling: model invokes 7 catalog tools → SQL / MongoDB queries → structured results.
+
+**Query 1 (mandatory attributes):**
 ```
-What attributes does the Trade entity have?
+What are the mandatory attributes for Book?
 ```
-**Expected answer type:** Bulleted list of field names, types, and nullability from SQL Server catalog.
+**Expected:** List of `IsMandatory=true` attributes from the Book entity (BookCode, LegalEntity, AssetClass, etc.). Stats panel shows Tool Calls ≥ 2 (`ResolveEntity` + `GetEntityAttributes`).
 
-**Query 2 (CDE discovery):**
+**Query 2 (business rules):**
 ```
-Show me all critical data elements for Settlement
+What rules are defined for Counterparty?
 ```
-**Expected answer type:** Table of CDE fields, classifications, and descriptions from the Catalog database.
+**Expected:** 7 business rules (MANDATORY + CONDITIONAL) from MongoDB `entity_rules` collection. Stats panel shows Tool Calls ≥ 2 (`ResolveEntity` + `GetEntityRules`).
 
-**Query 3 (relationships):**
+**Query 3 (complex attributes):**
 ```
-What relationships does Counterparty have?
+What source systems does Counterparty use?
 ```
-**Expected answer type:** Entity relationship diagram or text description (PK → FK links) to Trade, Settlement, etc.
+**Expected:** system_map children (MUREX, BLOOMBERG, SUMMIT, GBS) via `GetChildAttributes`. Demonstrates complex multi-value attribute drill-down.
 
-### UC-3: Data Queries (NL → IR → ES DSL)
+### UC-3: Data Queries (NL → IR → Elasticsearch DSL)
 
-Demonstrates the hardest path: natural language translated to typed Elasticsearch DSL, executed, formatted.
+Demonstrates the hardest path: natural language → typed `QuerySpec` IR → C# DSL compiler → ES `_search` → formatted answer.
 
-**Query 1 (sorting & filtering):**
+**Query 1 (filter + sort):**
 ```
 Show me the top 10 trades with status FAILED sorted by amount descending
 ```
-**Expected answer type:** Table with 10 rows (or fewer if fewer than 10 exist). Show columns: ID, Status, Amount, Trade Date. Pipeline should emit `IR First Try = yes` if the query validated on the first attempt.
+**Expected:** Table of up to 10 rows. Stats panel shows `IR First Try = yes` and `Result Rows`.
 
-**Query 2 (aggregation):**
+**Query 2 (time-range aggregation):**
 ```
 How many trades were settled last month?
 ```
-**Expected answer type:** Single number with explanation, e.g., "327 trades were settled in March 2026." Demonstrates `TimeRange` with `RelativePeriod` token `last_month`.
+**Expected:** Single number. Demonstrates `TimeRange` with `RelativePeriod = last_month`.
 
-**Query 3 (complex filtering):**
+**Query 3 (threshold filter):**
 ```
-List all counterparties with more than 5 active trades
+Find all open trades where notional exceeds 1 million
 ```
-**Expected answer type:** Counterparty names and active trade counts. Demonstrates nested filtering and aggregation.
+**Expected:** Trade list with notional values. Demonstrates numeric range filter compilation.
 
 ---
 

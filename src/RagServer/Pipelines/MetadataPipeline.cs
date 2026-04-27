@@ -39,11 +39,13 @@ public sealed class MetadataPipeline(
         using var activity = RagActivitySource.Source.StartActivity("rag.metadata_pipeline");
         var sw = Stopwatch.StartNew();
 
-        // Register all 5 catalog tools via AIFunctionFactory.Create(Delegate)
+        // Register all 7 catalog tools via AIFunctionFactory.Create(Delegate)
         AIFunction[] aiFunctions =
         [
             AIFunctionFactory.Create(catalogTools.ResolveEntityAsync),
             AIFunctionFactory.Create(catalogTools.GetEntityAttributesAsync),
+            AIFunctionFactory.Create(catalogTools.GetChildAttributesAsync),
+            AIFunctionFactory.Create(catalogTools.GetEntityRulesAsync),
             AIFunctionFactory.Create(catalogTools.GetEntityExtensionsAsync),
             AIFunctionFactory.Create(catalogTools.ListCDEAsync),
             AIFunctionFactory.Create(catalogTools.GetEntityRelationshipsAsync),
