@@ -98,6 +98,7 @@ builder.Services.Configure<ConfluenceOptions>(o =>
     o.IncrementalCron = builder.Configuration["CONFLUENCE_INCREMENTAL_CRON"] ?? o.IncrementalCron;
     o.FullSyncCron    = builder.Configuration["CONFLUENCE_FULL_SYNC_CRON"]   ?? o.FullSyncCron;
     if (int.TryParse(builder.Configuration["CONFLUENCE_RATE_LIMIT_RPS"], out var cfRps)) o.RateLimitRps = cfRps;
+    o.PublicUrl       = builder.Configuration["CONFLUENCE_PUBLIC_URL"]       ?? o.PublicUrl;
 });
 builder.Services.Configure<JiraOptions>(o =>
 {

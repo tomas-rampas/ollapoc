@@ -62,7 +62,8 @@ public sealed class ConfluenceCrawler(
                 {
                     var pageId  = page.GetProperty("id").GetString() ?? "";
                     var title   = page.GetProperty("title").GetString() ?? "";
-                    var pageUrl = $"{o.BaseUrl}/pages/{pageId}";
+                    var publicBase = string.IsNullOrEmpty(o.PublicUrl) ? o.BaseUrl : o.PublicUrl;
+                    var pageUrl = $"{publicBase}/wiki/spaces/{Uri.EscapeDataString(space)}/pages/{pageId}";
                     var lastMod = DateTime.UtcNow;
 
                     if (page.TryGetProperty("version", out var ver) &&
