@@ -58,7 +58,10 @@ public sealed class MetadataPipeline(
         {
             Tools = [.. aiFunctions.Cast<AITool>()],
             ToolMode = ChatToolMode.Auto,
-            MaxOutputTokens = opts.Value.MaxOutputTokens
+            // No MaxOutputTokens here: Qwen3 think blocks can be hundreds of tokens
+            // and truncating them mid-block causes the closing </think> tag to be missing,
+            // which means StripThink cannot remove the block and raw reasoning leaks to the user.
+            // MetadataMaxTurns already bounds total execution cost.
         };
 
         var messages = new List<ChatMessage>
@@ -184,8 +187,16 @@ public sealed class MetadataPipeline(
             System.Text.RegularExpressions.RegexOptions.IgnoreCase |
             System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    private static string StripThink(string text) =>
-        ThinkPattern.Replace(text, "").TrimStart();
+    private static string StripThink(string text)
+    {
+        // Strip complete <think>...</think> blocks
+        var stripped = ThinkPattern.Replace(text, "").TrimStart();
+        // If an unclosed <think> tag remains (model was truncated mid-think), discard everything after it
+        var idx = stripped.IndexOf("<think>", StringComparison.OrdinalIgnoreCase);
+        if (idx >= 0)
+            stripped = stripped[..idx].TrimEnd();
+        return stripped;
+    }
 
     private static string EscapeSse(string text)
     {
