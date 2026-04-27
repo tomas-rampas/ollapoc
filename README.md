@@ -1,14 +1,9 @@
-
-
-https://github.com/user-attachments/assets/d5dbfa99-bed3-4491-be10-cb78fd2b73f5
-
-
-
-https://github.com/user-attachments/assets/785566fe-3ca7-4a30-8d07-c4eb1c23c28b
-
 # ollapoc — AI Knowledge Assistant POC
 
 A self-hosted AI assistant that lets business users query enterprise data, metadata, and documentation in natural language. Three pipelines run over a financial Reference and Master Data Management (RMDM) dataset:
+
+## Sample
+https://github.com/user-attachments/assets/785566fe-3ca7-4a30-8d07-c4eb1c23c28b
 
 | Pipeline | Use Case | How it works |
 |---|---|---|
