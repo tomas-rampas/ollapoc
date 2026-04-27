@@ -15,7 +15,6 @@ namespace RagServer.Pipelines;
 public sealed class DocsPipeline(
     DocsRetriever retriever,
     [FromKeyedServices("chat")] IChatClient chatClient,
-    IOptions<RagOptions> opts,
     IOptions<OllamaOptions> ollamaOpts)
 {
     private static readonly JsonSerializerOptions StatsJsonOpts = new()
@@ -51,10 +50,10 @@ public sealed class DocsPipeline(
             new(ChatRole.User,   userContent)
         };
 
-        var chatOpts = new ChatOptions
-        {
-            MaxOutputTokens = opts.Value.MaxOutputTokens
-        };
+        // No MaxOutputTokens: Qwen3 think blocks can be hundreds of tokens and truncating
+        // them mid-block causes ThinkStripper to buffer indefinitely without ever emitting.
+        // The passage context already bounds total token cost.
+        var chatOpts = new ChatOptions();
 
         // Stream answer tokens as SSE data events, stripping any <think>…</think> block
         var answerBuilder = new System.Text.StringBuilder();
@@ -71,6 +70,14 @@ public sealed class DocsPipeline(
                 continue;
 
             await response.WriteAsync($"data: {EscapeSse(toEmit)}\n\n", ct);
+            await response.Body.FlushAsync(ct);
+        }
+
+        // Flush any content ThinkStripper buffered but never emitted (e.g. unclosed <think>)
+        var remaining = thinkStripper.Flush();
+        if (!string.IsNullOrEmpty(remaining))
+        {
+            await response.WriteAsync($"data: {EscapeSse(remaining)}\n\n", ct);
             await response.Body.FlushAsync(ct);
         }
 
@@ -171,6 +178,19 @@ public sealed class DocsPipeline(
             var after = s[(end + 8)..].TrimStart('\n', '\r');
             _buf.Clear();
             return after.Length > 0 ? after : null;
+        }
+
+        // Call after the stream ends — emits anything buffered if </think> never arrived
+        public string? Flush()
+        {
+            if (_done || _buf.Length == 0) return null;
+            var s = _buf.ToString();
+            _buf.Clear();
+            _done = true;
+            // Discard everything before and including any unclosed <think> tag
+            var idx = s.IndexOf("<think>", StringComparison.OrdinalIgnoreCase);
+            var result = idx >= 0 ? s[..idx].TrimEnd() : s.TrimStart();
+            return result.Length > 0 ? result : null;
         }
     }
 }
