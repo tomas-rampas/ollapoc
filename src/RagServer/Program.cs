@@ -307,7 +307,6 @@ if (skipAuth)
     startupLogger.LogWarning("SKIP_AUTH=true — authentication is disabled. Development only.");
 
 // ── Middleware ────────────────────────────────────────────────────────────────
-app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
@@ -319,6 +318,8 @@ var chatRoute = app.MapPost("/api/chat", ChatEndpoint.Handle);
 if (!skipAuth) chatRoute.RequireAuthorization();
 
 app.MapAdminEndpoints(skipAuth);
+
+app.MapStaticAssets();
 
 app.MapRazorComponents<RagServer.Components.App>()
     .AddInteractiveServerRenderMode();

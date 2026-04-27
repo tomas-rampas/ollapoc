@@ -95,7 +95,7 @@ public sealed class CatalogTools(
         // Load top-level attributes with their children included for inline summary
         var query = db.CatalogAttributes
             .Include(a => a.Children)
-            .Where(a => a.Entity.Name.ToLowerInvariant() == entityName.ToLowerInvariant()
+            .Where(a => a.Entity.Name.ToLower() == entityName.ToLower()
                      && a.ParentAttributeId == null);
 
         if (mandatoryOnly == true)
@@ -129,7 +129,7 @@ public sealed class CatalogTools(
         if (entityName.Length > MaxToolArgLength || parentAttributeCode.Length > MaxToolArgLength) return [];
 
         var children = await db.CatalogAttributes
-            .Where(a => a.Entity.Name.ToLowerInvariant() == entityName.ToLowerInvariant()
+            .Where(a => a.Entity.Name.ToLower() == entityName.ToLower()
                      && a.Parent != null
                      && a.Parent.AttributeCode == parentAttributeCode)
             .Select(a => new EntityAttributeInfo(
@@ -182,7 +182,7 @@ public sealed class CatalogTools(
 
         var query = db.CDEs.AsQueryable();
         if (!string.IsNullOrWhiteSpace(entityName))
-            query = query.Where(c => c.Entity.Name.ToLowerInvariant() == entityName.ToLowerInvariant());
+            query = query.Where(c => c.Entity.Name.ToLower() == entityName.ToLower());
 
         return await query
             .Select(c => new CdeInfo(c.Name, c.GovernanceOwner, c.RegulatoryReference, c.Description))
@@ -197,8 +197,8 @@ public sealed class CatalogTools(
         if (entityName.Length > MaxToolArgLength) return [];
 
         return await db.EntityRelationships
-            .Where(r => r.SourceEntity.Name.ToLowerInvariant() == entityName.ToLowerInvariant() ||
-                        r.TargetEntity.Name.ToLowerInvariant() == entityName.ToLowerInvariant())
+            .Where(r => r.SourceEntity.Name.ToLower() == entityName.ToLower() ||
+                        r.TargetEntity.Name.ToLower() == entityName.ToLower())
             .Select(r => new RelationshipInfo(
                 r.SourceEntity.Name,
                 r.TargetEntity.Name,
