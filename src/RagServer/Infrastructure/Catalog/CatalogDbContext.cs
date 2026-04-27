@@ -60,9 +60,9 @@ public class CatalogDbContext(DbContextOptions<CatalogDbContext> options) : DbCo
         mb.Entity<EvalQuery>().HasData(
             new EvalQuery { Id = 1, UseCase = "UC1", Query = "What is a counterparty?",                      Tags = "smoke,uc1" },
             new EvalQuery { Id = 2, UseCase = "UC1", Query = "Explain the purpose of the ISDA agreement.",  Tags = "smoke,uc1" },
-            new EvalQuery { Id = 3, UseCase = "UC2", Query = "What attributes does a Trade entity have?",   Tags = "smoke,uc2" },
+            new EvalQuery { Id = 3, UseCase = "UC2", Query = "What attributes does a Location entity have?",   Tags = "smoke,uc2" },
             new EvalQuery { Id = 4, UseCase = "UC2", Query = "List the critical data elements for risk.",   Tags = "smoke,uc2" },
-            new EvalQuery { Id = 5, UseCase = "UC3", Query = "Give me all open trades for counterparty 42.", Tags = "smoke,uc3" },
+            new EvalQuery { Id = 5, UseCase = "UC3", Query = "Give me all active locations in London.", Tags = "smoke,uc3" },
             new EvalQuery { Id = 6,  UseCase = "UC1", Query = "What is a trade lifecycle?",                       Tags = "uc1,golden" },
             new EvalQuery { Id = 7,  UseCase = "UC1", Query = "Explain settlement instructions.",                  Tags = "uc1,golden" },
             new EvalQuery { Id = 8,  UseCase = "UC1", Query = "What is a master netting agreement?",               Tags = "uc1,golden" },
@@ -91,27 +91,20 @@ public class CatalogDbContext(DbContextOptions<CatalogDbContext> options) : DbCo
         );
 
         mb.Entity<CatalogEntity>().HasData(
-            new CatalogEntity { Id = 1,  Name = "Trade",                EntityType = "financial_instrument", EntityCode = "trade",                  Description = "A financial contract between two counterparties" },
             new CatalogEntity { Id = 2,  Name = "Settlement",           EntityType = "process",              EntityCode = "settlement",             Description = "The process of finalizing a trade transaction" },
             new CatalogEntity { Id = 3,  Name = "Counterparty",         EntityType = "party",                EntityCode = "counterparty",           Description = "Legal entity on the other side of a trade" },
-            new CatalogEntity { Id = 4,  Name = "Portfolio",            EntityType = "financial_instrument", EntityCode = "portfolio",              Description = "A collection of financial positions" },
-            new CatalogEntity { Id = 5,  Name = "Instrument",           EntityType = "financial_instrument", EntityCode = "instrument",             Description = "A tradeable financial asset or security" },
             new CatalogEntity { Id = 6,  Name = "ClientAccount",        EntityType = "account",              EntityCode = "clientaccount",          Description = "A client's trading or settlement account" },
             new CatalogEntity { Id = 7,  Name = "Book",                 EntityType = "financial_instrument", EntityCode = "book",                   Description = "A trading or banking book holding positions" },
             new CatalogEntity { Id = 8,  Name = "SettlementInstruction", EntityType = "instruction",         EntityCode = "settlementinstruction",  Description = "Standing settlement instruction for a counterparty" },
             new CatalogEntity { Id = 9,  Name = "Country",              EntityType = "reference",            EntityCode = "country",                Description = "ISO country reference data" },
-            new CatalogEntity { Id = 10, Name = "Currency",             EntityType = "reference",            EntityCode = "currency",               Description = "ISO currency reference data" }
+            new CatalogEntity { Id = 10, Name = "Currency",             EntityType = "reference",            EntityCode = "currency",               Description = "ISO currency reference data" },
+            new CatalogEntity { Id = 11, Name = "UkSicCode",  EntityType = "reference", EntityCode = "uksiccode",  Description = "UK Standard Industrial Classification 2007 code" },
+            new CatalogEntity { Id = 12, Name = "NaceCode",   EntityType = "reference", EntityCode = "nacecode",   Description = "EU NACE Rev.2 economic activity classification code" },
+            new CatalogEntity { Id = 13, Name = "Region",     EntityType = "reference", EntityCode = "region",     Description = "UK ONS ITL1 statistical region" },
+            new CatalogEntity { Id = 14, Name = "Location",   EntityType = "reference", EntityCode = "location",   Description = "Physical business location with address and classification" }
         );
 
         mb.Entity<CatalogAttribute>().HasData(
-            // ── Trade attributes (CatalogEntityId = 1, IDs 1-7) ─────────────────
-            new CatalogAttribute { Id = 1,  CatalogEntityId = 1, Name = "TradeId",        DataType = "string",   Description = "Unique identifier for the trade",            IsNullable = false },
-            new CatalogAttribute { Id = 2,  CatalogEntityId = 1, Name = "TradeDate",      DataType = "datetime", Description = "Date the trade was executed",                IsNullable = false },
-            new CatalogAttribute { Id = 3,  CatalogEntityId = 1, Name = "ValueDate",      DataType = "datetime", Description = "Date on which the trade value is effective",  IsNullable = false },
-            new CatalogAttribute { Id = 4,  CatalogEntityId = 1, Name = "Notional",       DataType = "decimal",  Description = "Notional amount of the trade",               IsNullable = false },
-            new CatalogAttribute { Id = 5,  CatalogEntityId = 1, Name = "Currency",       DataType = "string",   Description = "Currency of the notional amount",            IsNullable = false },
-            new CatalogAttribute { Id = 6,  CatalogEntityId = 1, Name = "Status",         DataType = "string",   Description = "Current status of the trade lifecycle",      IsNullable = false },
-            new CatalogAttribute { Id = 7,  CatalogEntityId = 1, Name = "InstrumentType", DataType = "string",   Description = "Type of financial instrument",               IsNullable = false },
             // ── Settlement attributes (CatalogEntityId = 2, IDs 8-10) ────────────
             new CatalogAttribute { Id = 8,  CatalogEntityId = 2, Name = "SettlementId",   DataType = "string",   Description = "Unique identifier for the settlement",       IsNullable = false },
             new CatalogAttribute { Id = 9,  CatalogEntityId = 2, Name = "SettlementDate", DataType = "datetime", Description = "Expected settlement date",                   IsNullable = false },
@@ -322,14 +315,45 @@ public class CatalogDbContext(DbContextOptions<CatalogDbContext> options) : DbCo
             // rounding_conventions children (ParentAttributeId = 153)
             new CatalogAttribute { Id = 160, CatalogEntityId = 10, ParentAttributeId = 153, Name = "PAYMENTS",  DataType = "object", IsNullable = true, AttributeCode = "PAYMENTS",  Description = "Payment rounding — fields: decimalPlaces, roundingMethod (HALF_UP|HALF_EVEN)" },
             new CatalogAttribute { Id = 161, CatalogEntityId = 10, ParentAttributeId = 153, Name = "PRICING",   DataType = "object", IsNullable = true, AttributeCode = "PRICING",   Description = "Pricing rounding — fields: decimalPlaces, roundingMethod" },
-            new CatalogAttribute { Id = 162, CatalogEntityId = 10, ParentAttributeId = 153, Name = "REPORTING", DataType = "object", IsNullable = true, AttributeCode = "REPORTING", Description = "Reporting rounding (often ISO standard) — fields: decimalPlaces, roundingMethod" }
+            new CatalogAttribute { Id = 162, CatalogEntityId = 10, ParentAttributeId = 153, Name = "REPORTING", DataType = "object", IsNullable = true, AttributeCode = "REPORTING", Description = "Reporting rounding (often ISO standard) — fields: decimalPlaces, roundingMethod" },
+
+            // ── UkSicCode (CatalogEntityId = 11, IDs 163-169) ────────────────────
+            new CatalogAttribute { Id = 163, CatalogEntityId = 11, Name = "SicCode",            DataType = "string",  IsNullable = false, IsMandatory = true,  AttributeCode = "sic_code",            Description = "5-digit SIC 2007 code (e.g. 64191)" },
+            new CatalogAttribute { Id = 164, CatalogEntityId = 11, Name = "Description",        DataType = "string",  IsNullable = false, IsMandatory = true,  AttributeCode = "description",         Description = "Human-readable description of the SIC activity" },
+            new CatalogAttribute { Id = 165, CatalogEntityId = 11, Name = "Section",            DataType = "string",  IsNullable = true,  AttributeCode = "section",             Description = "SIC section letter (A-U, e.g. K for Financial activities)" },
+            new CatalogAttribute { Id = 166, CatalogEntityId = 11, Name = "SectionDescription", DataType = "string",  IsNullable = true,  AttributeCode = "section_description",  Description = "Human-readable section description" },
+            new CatalogAttribute { Id = 167, CatalogEntityId = 11, Name = "Division",           DataType = "string",  IsNullable = true,  AttributeCode = "division",            Description = "2-digit division code (e.g. 64)" },
+            new CatalogAttribute { Id = 168, CatalogEntityId = 11, Name = "Group",              DataType = "string",  IsNullable = true,  AttributeCode = "group",               Description = "3-digit group code (e.g. 641)" },
+            new CatalogAttribute { Id = 169, CatalogEntityId = 11, Name = "Class",              DataType = "string",  IsNullable = true,  AttributeCode = "class",               Description = "4-digit class code (e.g. 6419)" },
+
+            // ── NaceCode (CatalogEntityId = 12, IDs 170-174) ─────────────────────
+            new CatalogAttribute { Id = 170, CatalogEntityId = 12, Name = "NaceCode",   DataType = "string", IsNullable = false, IsMandatory = true,  AttributeCode = "nace_code",  Description = "NACE Rev.2 code in format K64.19" },
+            new CatalogAttribute { Id = 171, CatalogEntityId = 12, Name = "Description", DataType = "string", IsNullable = false, IsMandatory = true,  AttributeCode = "description", Description = "Human-readable NACE activity description" },
+            new CatalogAttribute { Id = 172, CatalogEntityId = 12, Name = "Section",    DataType = "string", IsNullable = true,  AttributeCode = "section",     Description = "NACE section letter (e.g. K)" },
+            new CatalogAttribute { Id = 173, CatalogEntityId = 12, Name = "Division",   DataType = "string", IsNullable = true,  AttributeCode = "division",    Description = "NACE division (2-digit, e.g. 64)" },
+            new CatalogAttribute { Id = 174, CatalogEntityId = 12, Name = "Group",      DataType = "string", IsNullable = true,  AttributeCode = "group",       Description = "NACE group (e.g. 64.1)" },
+
+            // ── Region (CatalogEntityId = 13, IDs 175-178) ───────────────────────
+            new CatalogAttribute { Id = 175, CatalogEntityId = 13, Name = "RegionId",   DataType = "string", IsNullable = false, IsMandatory = true,  AttributeCode = "region_id",   Description = "ONS ITL1 region code (e.g. TLC for London)" },
+            new CatalogAttribute { Id = 176, CatalogEntityId = 13, Name = "RegionName", DataType = "string", IsNullable = false, IsMandatory = true,  AttributeCode = "region_name", Description = "Region name (e.g. London, South East)" },
+            new CatalogAttribute { Id = 177, CatalogEntityId = 13, Name = "Country",    DataType = "string", IsNullable = false, IsMandatory = true,  AttributeCode = "country",     Description = "ISO 3166-1 alpha-2 country code" },
+            new CatalogAttribute { Id = 178, CatalogEntityId = 13, Name = "IsUkRegion", DataType = "bool",   IsNullable = false, AttributeCode = "is_uk_region", Description = "True for UK ONS ITL1 regions" },
+
+            // ── Location (CatalogEntityId = 14, IDs 179-189) ─────────────────────
+            new CatalogAttribute { Id = 179, CatalogEntityId = 14, Name = "LocationId",   DataType = "string", IsNullable = false, IsMandatory = true,  AttributeCode = "location_id",   Description = "Unique location identifier (e.g. LOC001)" },
+            new CatalogAttribute { Id = 180, CatalogEntityId = 14, Name = "LocationName", DataType = "string", IsNullable = false, IsMandatory = true,  AttributeCode = "location_name", Description = "Descriptive name of the location" },
+            new CatalogAttribute { Id = 181, CatalogEntityId = 14, Name = "AddressLine1", DataType = "string", IsNullable = true,  AttributeCode = "address_line1", Description = "First line of the postal address" },
+            new CatalogAttribute { Id = 182, CatalogEntityId = 14, Name = "City",         DataType = "string", IsNullable = true,  AttributeCode = "city",          Description = "City name" },
+            new CatalogAttribute { Id = 183, CatalogEntityId = 14, Name = "Postcode",     DataType = "string", IsNullable = true,  AttributeCode = "postcode",      Description = "UK postcode" },
+            new CatalogAttribute { Id = 184, CatalogEntityId = 14, Name = "RegionId",     DataType = "string", IsNullable = true,  AttributeCode = "region_id",     Description = "FK to Region entity (ONS ITL1 code)" },
+            new CatalogAttribute { Id = 185, CatalogEntityId = 14, Name = "Country",      DataType = "string", IsNullable = true,  AttributeCode = "country",       Description = "ISO 3166-1 alpha-2 country code" },
+            new CatalogAttribute { Id = 186, CatalogEntityId = 14, Name = "BusinessType", DataType = "string", IsNullable = true,  AttributeCode = "business_type", Description = "Head Office | Branch | Regional Office | Trading Office | Back Office | Data Centre | Service Centre" },
+            new CatalogAttribute { Id = 187, CatalogEntityId = 14, Name = "Status",       DataType = "string", IsNullable = false, IsMandatory = true,  AttributeCode = "status",        Description = "Active | Inactive | Under Review" },
+            new CatalogAttribute { Id = 188, CatalogEntityId = 14, Name = "SicCode",      DataType = "string", IsNullable = true,  AttributeCode = "sic_code",      Description = "UK SIC 2007 code for this location's primary activity" },
+            new CatalogAttribute { Id = 189, CatalogEntityId = 14, Name = "NaceCode",     DataType = "string", IsNullable = true,  AttributeCode = "nace_code",     Description = "NACE Rev.2 code for this location's primary activity" }
         );
 
         mb.Entity<CriticalDataElement>().HasData(
-            new CriticalDataElement { Id = 1,  CatalogEntityId = 1,  Name = "TradeId",         GovernanceOwner = "Operations",     RegulatoryReference = "EMIR Art.9",             Description = "Unique trade identifier" },
-            new CriticalDataElement { Id = 2,  CatalogEntityId = 1,  Name = "CounterpartyLEI", GovernanceOwner = "Legal",          RegulatoryReference = "EMIR Art.9",             Description = "Legal Entity Identifier of counterparty" },
-            new CriticalDataElement { Id = 3,  CatalogEntityId = 1,  Name = "Notional",        GovernanceOwner = "Risk",           RegulatoryReference = "EMIR Art.9",             Description = "Notional amount for margin calculation" },
-            new CriticalDataElement { Id = 4,  CatalogEntityId = 1,  Name = "TradeDate",       GovernanceOwner = "Operations",     RegulatoryReference = "MiFID II Art.26",        Description = "Date the trade was executed" },
             new CriticalDataElement { Id = 5,  CatalogEntityId = 2,  Name = "SettlementDate",  GovernanceOwner = "Operations",     RegulatoryReference = null,                     Description = "Expected settlement date" },
             new CriticalDataElement { Id = 6,  CatalogEntityId = 3,  Name = "LegalName",       GovernanceOwner = "Legal",          RegulatoryReference = "GLEIF",                  Description = "Official registered legal name — must match GLEIF registry" },
             new CriticalDataElement { Id = 7,  CatalogEntityId = 3,  Name = "Lei",             GovernanceOwner = "Legal",          RegulatoryReference = "ISO 17442 / GLEIF",      Description = "Legal Entity Identifier — mandatory for all EMIR/MiFID reporting" },
@@ -349,9 +373,6 @@ public class CatalogDbContext(DbContextOptions<CatalogDbContext> options) : DbCo
         );
 
         mb.Entity<EntityRelationship>().HasData(
-            new EntityRelationship { Id = 1,  SourceEntityId = 1, TargetEntityId = 3,  RelationshipType = "hasCounterparty",       Description = "A trade involves a counterparty" },
-            new EntityRelationship { Id = 2,  SourceEntityId = 1, TargetEntityId = 2,  RelationshipType = "settledBy",             Description = "A trade is settled by a settlement instruction" },
-            new EntityRelationship { Id = 3,  SourceEntityId = 4, TargetEntityId = 5,  RelationshipType = "contains",              Description = "A portfolio contains instruments" },
             new EntityRelationship { Id = 4,  SourceEntityId = 3, TargetEntityId = 6,  RelationshipType = "hasAccount",            Description = "A counterparty holds one or more client accounts" },
             new EntityRelationship { Id = 5,  SourceEntityId = 6, TargetEntityId = 7,  RelationshipType = "bookedToBook",          Description = "A client account's trades are booked to a trading/banking book" },
             new EntityRelationship { Id = 6,  SourceEntityId = 8, TargetEntityId = 3,  RelationshipType = "issuedForCounterparty", Description = "A settlement instruction is issued for a specific counterparty" },
@@ -359,7 +380,10 @@ public class CatalogDbContext(DbContextOptions<CatalogDbContext> options) : DbCo
             new EntityRelationship { Id = 8,  SourceEntityId = 6, TargetEntityId = 10, RelationshipType = "denominatedIn",         Description = "A client account is denominated in a currency" },
             new EntityRelationship { Id = 9,  SourceEntityId = 7, TargetEntityId = 10, RelationshipType = "limitedInCurrency",     Description = "A book's risk limit is expressed in a currency" },
             new EntityRelationship { Id = 10, SourceEntityId = 9, TargetEntityId = 10, RelationshipType = "defaultCurrency",       Description = "A country has a default trading currency" },
-            new EntityRelationship { Id = 11, SourceEntityId = 8, TargetEntityId = 10, RelationshipType = "settledIn",             Description = "A settlement instruction is denominated in a currency" }
+            new EntityRelationship { Id = 11, SourceEntityId = 8, TargetEntityId = 10, RelationshipType = "settledIn",             Description = "A settlement instruction is denominated in a currency" },
+            new EntityRelationship { Id = 12, SourceEntityId = 14, TargetEntityId = 13, RelationshipType = "locatedInRegion", Description = "A location is situated in a UK ONS ITL1 region" },
+            new EntityRelationship { Id = 13, SourceEntityId = 14, TargetEntityId = 11, RelationshipType = "classifiedBySic",  Description = "A location is classified by a UK SIC 2007 code" },
+            new EntityRelationship { Id = 14, SourceEntityId = 14, TargetEntityId = 12, RelationshipType = "classifiedByNace", Description = "A location is classified by a NACE Rev.2 code" }
         );
     }
 }

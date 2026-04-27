@@ -305,26 +305,63 @@ public sealed class DataPipeline(
         if (!resp.Hits.Any())
             return $"No results found for {spec.Entity}.";
 
+        var validHits = resp.Hits
+            .Where(h => h.Source is { ValueKind: not JsonValueKind.Undefined })
+            .Select(h => h.Source)
+            .ToList();
+
+        if (validHits.Count == 0)
+            return $"Found {resp.Total} {spec.Entity} records (no source data available).";
+
+        // Collect columns from first hit
+        var columns = validHits[0].EnumerateObject().Select(p => p.Name).ToList();
+        if (columns.Count == 0)
+            return $"Found {resp.Total} {spec.Entity} records.";
+
+        // Detect the primary ID field for clickable links
+        var entityLower = spec.Entity.ToLower();
+        var idField = columns.FirstOrDefault(c => c.Equals($"{entityLower}_id", StringComparison.OrdinalIgnoreCase))
+                      ?? columns.FirstOrDefault(c => c.Equals("id", StringComparison.OrdinalIgnoreCase))
+                      ?? columns.FirstOrDefault(c => c.EndsWith("_id", StringComparison.OrdinalIgnoreCase));
+
         var sb = new StringBuilder();
-        sb.AppendLine($"Found {resp.Total} {spec.Entity} records:");
+        sb.AppendLine($"Found {resp.Total} **{spec.Entity}** records:");
         sb.AppendLine();
 
-        foreach (var hit in resp.Hits)
+        // Table header
+        sb.AppendLine("| " + string.Join(" | ", columns.Select(EscapeCell)) + " |");
+        sb.AppendLine("| " + string.Join(" | ", columns.Select(_ => "---")) + " |");
+
+        // Table rows
+        foreach (var src in validHits)
         {
-            if (hit.Source is { } src)
-                sb.AppendLine($"- {src.ToString()}");
+            var cells = columns.Select<string, string>(col =>
+            {
+                if (!src.TryGetProperty(col, out var val)) return "";
+                var raw = val.ValueKind == JsonValueKind.String
+                    ? val.GetString() ?? ""
+                    : val.ToString();
+                raw = EscapeCell(raw);
+                if (idField != null && col.Equals(idField, StringComparison.OrdinalIgnoreCase))
+                    return $"[{raw}](/entity/{spec.Entity}/{raw})";
+                return raw;
+            });
+            sb.AppendLine("| " + string.Join(" | ", cells) + " |");
         }
 
         if (resp.Aggregations?.Count > 0)
         {
             sb.AppendLine();
-            sb.AppendLine("Aggregations:");
+            sb.AppendLine("**Aggregations:**");
             foreach (var kv in resp.Aggregations)
-                sb.AppendLine($"  {kv.Key}: {kv.Value}");
+                sb.AppendLine($"- {kv.Key}: {kv.Value}");
         }
 
         return sb.ToString().TrimEnd();
     }
+
+    private static string EscapeCell(string value) =>
+        value.Replace("|", "\\|").Replace("\n", " ").Replace("\r", "");
 
     private static string EscapeSse(string text) =>
         text.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", "\ndata: ");

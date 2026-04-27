@@ -1,0 +1,55 @@
+@page "/entities"
+@rendermode InteractiveServer
+
+<div style="max-width:1000px;margin:2rem auto;padding:1rem;font-family:sans-serif;">
+    <h1>Entity Catalog</h1>
+    <p>Browse all operational entities. Click a sample ID to view the entity detail page.</p>
+
+    <table style="width:100%;border-collapse:collapse;margin-top:1rem;">
+        <thead>
+            <tr style="background:#f0f0f0;">
+                <th style="text-align:left;padding:8px;border:1px solid #ccc;">Entity Type</th>
+                <th style="text-align:left;padding:8px;border:1px solid #ccc;">ES Index</th>
+                <th style="text-align:left;padding:8px;border:1px solid #ccc;">Sample Records</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var row in _entities)
+            {
+                <tr>
+                    <td style="padding:8px;border:1px solid #ccc;">@row.Name</td>
+                    <td style="padding:8px;border:1px solid #ccc;font-family:monospace;font-size:0.85em;">@row.Index</td>
+                    <td style="padding:8px;border:1px solid #ccc;">
+                        @foreach (var (id, i) in row.SampleIds.Select((id, i) => (id, i)))
+                        {
+                            if (i > 0) { <span>, </span> }
+                            <a href="@($"/entity/{row.Name}/{id}")">@id</a>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <br />
+    <a href="/">← Back to Chat</a>
+</div>
+
+@code {
+    private record EntityRow(string Name, string Index, string[] SampleIds);
+
+    private static readonly EntityRow[] _entities =
+    [
+        new("Counterparty",          "counterpartys",          ["CP001", "CP002", "CP003"]),
+        new("Settlement",            "settlements",            ["SET001", "SET002", "SET003"]),
+        new("ClientAccount",         "clientaccounts",         ["ACC001", "ACC002", "ACC003"]),
+        new("Book",                  "books",                  ["BK001", "BK002", "BK003"]),
+        new("SettlementInstruction", "settlementinstructions", ["SSI001", "SSI002", "SSI003"]),
+        new("Country",               "countrys",               ["GB", "US", "DE"]),
+        new("Currency",              "currencys",              ["GBP", "USD", "EUR"]),
+        new("UkSicCode",             "uksiccodes",             ["64110", "64191", "66300"]),
+        new("NaceCode",              "nacecodes",              ["K64.11", "K64.19", "K66.30"]),
+        new("Region",                "regions",                ["TLC", "TLD", "TLL"]),
+        new("Location",              "locations",              ["LOC001", "LOC002", "LOC003"]),
+    ];
+}

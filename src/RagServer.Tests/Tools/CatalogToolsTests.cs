@@ -102,38 +102,38 @@ public class CatalogToolsTests
     // ── GetEntityAttributesAsync ──────────────────────────────────────────────
 
     [Fact]
-    public async Task GetEntityAttributes_GivenTradeEntity_ReturnsSevenAttributes()
+    public async Task GetEntityAttributes_GivenLocationEntity_ReturnsElevenAttributes()
     {
-        // Given the seeded database has 7 Trade attributes (Ids 1-7)
+        // Given the seeded database has 11 Location attributes (Ids 179-189)
         using var db = BuildDb();
         var tools = BuildTools(db);
 
-        // When fetching attributes for Trade
-        var result = await tools.GetEntityAttributesAsync("Trade", ct: CancellationToken.None);
+        // When fetching attributes for Location
+        var result = await tools.GetEntityAttributesAsync("Location", ct: CancellationToken.None);
 
-        // Then 7 attributes are returned
-        Assert.Equal(7, result.Count);
+        // Then 11 attributes are returned
+        Assert.Equal(11, result.Count);
     }
 
     [Fact]
-    public async Task GetEntityAttributes_GivenTradeEntity_ContainsExpectedAttributeNames()
+    public async Task GetEntityAttributes_GivenLocationEntity_ContainsExpectedAttributeNames()
     {
         // Given the seeded database
         using var db = BuildDb();
         var tools = BuildTools(db);
 
-        // When fetching attributes for Trade
-        var result = await tools.GetEntityAttributesAsync("Trade", ct: CancellationToken.None);
+        // When fetching attributes for Location
+        var result = await tools.GetEntityAttributesAsync("Location", ct: CancellationToken.None);
 
         // Then the known attribute names are present
         var names = result.Select(a => a.Name).ToHashSet();
-        Assert.Contains("TradeId",        names);
-        Assert.Contains("TradeDate",      names);
-        Assert.Contains("ValueDate",      names);
-        Assert.Contains("Notional",       names);
-        Assert.Contains("Currency",       names);
-        Assert.Contains("Status",         names);
-        Assert.Contains("InstrumentType", names);
+        Assert.Contains("LocationId",   names);
+        Assert.Contains("LocationName", names);
+        Assert.Contains("City",         names);
+        Assert.Contains("Postcode",     names);
+        Assert.Contains("Country",      names);
+        Assert.Contains("Status",       names);
+        Assert.Contains("BusinessType", names);
     }
 
     [Fact]
@@ -188,17 +188,18 @@ public class CatalogToolsTests
         using var db = BuildDb();
         var tools = BuildTools(db);
 
-        // When fetching Trade attributes
-        var result = await tools.GetEntityAttributesAsync("Trade", ct: CancellationToken.None);
+        // When fetching Location attributes
+        var result = await tools.GetEntityAttributesAsync("Location", ct: CancellationToken.None);
 
-        // Then TradeDate has datatype datetime and IsNullable = false
-        var tradeDate = result.Single(a => a.Name == "TradeDate");
-        Assert.Equal("datetime", tradeDate.DataType);
-        Assert.False(tradeDate.IsNullable);
+        // Then LocationId has datatype string and IsNullable = false
+        var locationId = result.Single(a => a.Name == "LocationId");
+        Assert.Equal("string", locationId.DataType);
+        Assert.False(locationId.IsNullable);
 
-        // And Notional has datatype decimal
-        var notional = result.Single(a => a.Name == "Notional");
-        Assert.Equal("decimal", notional.DataType);
+        // And City has datatype string and IsNullable = true
+        var city = result.Single(a => a.Name == "City");
+        Assert.Equal("string", city.DataType);
+        Assert.True(city.IsNullable);
     }
 
     // ── GetEntityExtensionsAsync ──────────────────────────────────────────────
@@ -271,21 +272,21 @@ public class CatalogToolsTests
     // ── ListCDEAsync ──────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task ListCDE_GivenNullFilter_ReturnsAllTwentyCDEs()
+    public async Task ListCDE_GivenNullFilter_ReturnsAllSixteenCDEs()
     {
-        // Given the seeded database has 20 CDEs total (5 original + 15 new Sprint 6 CDEs)
+        // Given the seeded database has 16 CDEs total (Trade CDEs removed in Sprint 8)
         using var db = BuildDb();
         var tools = BuildTools(db);
 
         // When listing all CDEs with no filter
         var result = await tools.ListCDEAsync(null, CancellationToken.None);
 
-        // Then all 20 CDEs are returned
-        Assert.Equal(20, result.Count);
+        // Then all 16 CDEs are returned
+        Assert.Equal(16, result.Count);
     }
 
     [Fact]
-    public async Task ListCDE_GivenEmptyStringFilter_ReturnsAllTwentyCDEs()
+    public async Task ListCDE_GivenEmptyStringFilter_ReturnsAllSixteenCDEs()
     {
         // Given the seeded database
         using var db = BuildDb();
@@ -294,40 +295,39 @@ public class CatalogToolsTests
         // When listing with an empty string (treated as no filter)
         var result = await tools.ListCDEAsync("", CancellationToken.None);
 
-        // Then all 20 CDEs are returned (whitespace guard in implementation)
-        Assert.Equal(20, result.Count);
+        // Then all 16 CDEs are returned (whitespace guard in implementation)
+        Assert.Equal(16, result.Count);
     }
 
     [Fact]
-    public async Task ListCDE_GivenTradeFilter_ReturnsFourCDEs()
+    public async Task ListCDE_GivenCounterpartyFilter_ReturnsThreeCDEs()
     {
-        // Given the seeded database has 4 Trade CDEs (Ids 1-4)
+        // Given the seeded database has 3 Counterparty CDEs (Lei, LegalName, FatcaStatus)
         using var db = BuildDb();
         var tools = BuildTools(db);
 
-        // When listing CDEs filtered to Trade
-        var result = await tools.ListCDEAsync("Trade", CancellationToken.None);
+        // When listing CDEs filtered to Counterparty
+        var result = await tools.ListCDEAsync("Counterparty", CancellationToken.None);
 
-        // Then exactly 4 CDEs are returned
-        Assert.Equal(4, result.Count);
+        // Then exactly 3 CDEs are returned
+        Assert.Equal(3, result.Count);
     }
 
     [Fact]
-    public async Task ListCDE_GivenTradeFilter_ContainsExpectedCdeNames()
+    public async Task ListCDE_GivenCounterpartyFilter_ContainsExpectedCdeNames()
     {
         // Given the seeded database
         using var db = BuildDb();
         var tools = BuildTools(db);
 
-        // When listing Trade CDEs
-        var result = await tools.ListCDEAsync("Trade", CancellationToken.None);
+        // When listing Counterparty CDEs
+        var result = await tools.ListCDEAsync("Counterparty", CancellationToken.None);
 
-        // Then the known Trade CDE names are present
+        // Then the known Counterparty CDE names are present
         var names = result.Select(c => c.Name).ToHashSet();
-        Assert.Contains("TradeId",         names);
-        Assert.Contains("CounterpartyLEI", names);
-        Assert.Contains("Notional",        names);
-        Assert.Contains("TradeDate",       names);
+        Assert.Contains("Lei",         names);
+        Assert.Contains("LegalName",   names);
+        Assert.Contains("FatcaStatus", names);
     }
 
     [Fact]
@@ -367,102 +367,99 @@ public class CatalogToolsTests
         using var db = BuildDb();
         var tools = BuildTools(db);
 
-        // When fetching Trade CDEs
-        var result = await tools.ListCDEAsync("Trade", CancellationToken.None);
+        // When fetching Counterparty CDEs
+        var result = await tools.ListCDEAsync("Counterparty", CancellationToken.None);
 
-        // Then regulatory references are populated for EMIR/MiFID CDEs
-        var tradeId = result.Single(c => c.Name == "TradeId");
-        Assert.Equal("EMIR Art.9", tradeId.RegulatoryReference);
+        // Then regulatory references are populated for GLEIF CDEs
+        var legalName = result.Single(c => c.Name == "LegalName");
+        Assert.Equal("GLEIF", legalName.RegulatoryReference);
 
-        var tradeDate = result.Single(c => c.Name == "TradeDate");
-        Assert.Equal("MiFID II Art.26", tradeDate.RegulatoryReference);
+        var lei = result.Single(c => c.Name == "Lei");
+        Assert.Equal("ISO 17442 / GLEIF", lei.RegulatoryReference);
     }
 
     // ── GetEntityRelationshipsAsync ───────────────────────────────────────────
 
     [Fact]
-    public async Task GetEntityRelationships_GivenTrade_ReturnsTwoRelationships()
+    public async Task GetEntityRelationships_GivenLocation_ReturnsThreeRelationships()
     {
-        // Given the seeded database has 2 relationships where Trade is the source
-        // (hasCounterparty → Counterparty, settledBy → Settlement)
+        // Given the seeded database has 3 relationships where Location is the source
+        // (locatedInRegion, classifiedBySic, classifiedByNace)
         using var db = BuildDb();
         var tools = BuildTools(db);
 
-        // When fetching relationships for Trade
-        var result = await tools.GetEntityRelationshipsAsync("Trade", CancellationToken.None);
+        // When fetching relationships for Location
+        var result = await tools.GetEntityRelationshipsAsync("Location", CancellationToken.None);
 
-        // Then exactly 2 relationships are returned
-        Assert.Equal(2, result.Count);
+        // Then exactly 3 relationships are returned
+        Assert.Equal(3, result.Count);
     }
 
     [Fact]
-    public async Task GetEntityRelationships_GivenTrade_ContainsExpectedRelationshipTypes()
+    public async Task GetEntityRelationships_GivenLocation_ContainsExpectedRelationshipTypes()
     {
         // Given the seeded database
         using var db = BuildDb();
         var tools = BuildTools(db);
 
-        // When fetching relationships for Trade
-        var result = await tools.GetEntityRelationshipsAsync("Trade", CancellationToken.None);
+        // When fetching relationships for Location
+        var result = await tools.GetEntityRelationshipsAsync("Location", CancellationToken.None);
 
-        // Then both known relationship types are present
+        // Then all three known relationship types are present
         var types = result.Select(r => r.RelationshipType).ToHashSet();
-        Assert.Contains("hasCounterparty", types);
-        Assert.Contains("settledBy",       types);
+        Assert.Contains("locatedInRegion",  types);
+        Assert.Contains("classifiedBySic",  types);
+        Assert.Contains("classifiedByNace", types);
     }
 
     [Fact]
-    public async Task GetEntityRelationships_GivenCounterparty_ReturnsThreeRelationships()
+    public async Task GetEntityRelationships_GivenCounterparty_ReturnsTwoRelationships()
     {
-        // Given the seeded database: Trade→hasCounterparty→Counterparty,
-        // Counterparty→hasAccount→ClientAccount, SettlementInstruction→issuedForCounterparty→Counterparty
+        // Given the seeded database:
+        // Counterparty→hasAccount→ClientAccount (source), SettlementInstruction→issuedForCounterparty→Counterparty (target)
         using var db = BuildDb();
         var tools = BuildTools(db);
 
         // When fetching relationships for Counterparty (source + target)
         var result = await tools.GetEntityRelationshipsAsync("Counterparty", CancellationToken.None);
 
-        // Then 3 relationships are returned
-        Assert.Equal(3, result.Count);
+        // Then 2 relationships are returned
+        Assert.Equal(2, result.Count);
         var types = result.Select(r => r.RelationshipType).ToHashSet();
-        Assert.Contains("hasCounterparty",       types);
         Assert.Contains("hasAccount",            types);
         Assert.Contains("issuedForCounterparty", types);
     }
 
     [Fact]
-    public async Task GetEntityRelationships_GivenSettlement_ReturnsOneRelationship()
+    public async Task GetEntityRelationships_GivenSettlement_ReturnsNoRelationships()
     {
-        // Given the seeded database has 1 relationship where Settlement is the target
-        // (Trade → settledBy → Settlement)
+        // Given the seeded database has no relationships referencing Settlement
+        // (the Trade→settledBy→Settlement relationship was removed with Trade entity)
         using var db = BuildDb();
         var tools = BuildTools(db);
 
         // When fetching relationships for Settlement
         var result = await tools.GetEntityRelationshipsAsync("Settlement", CancellationToken.None);
 
-        // Then exactly 1 relationship is returned and Settlement is the target
-        Assert.Single(result);
-        Assert.Equal("Trade",      result[0].SourceEntity);
-        Assert.Equal("Settlement", result[0].TargetEntity);
-        Assert.Equal("settledBy",  result[0].RelationshipType);
+        // Then no relationships are returned
+        Assert.Empty(result);
     }
 
     [Fact]
     public async Task GetEntityRelationships_ReturnsSourceAndTargetInclusively()
     {
-        // Given the seeded data: Portfolio → contains → Instrument
+        // Given the seeded data: Location → locatedInRegion → Region
         using var db = BuildDb();
         var tools = BuildTools(db);
 
-        // When fetching relationships for Portfolio (source only)
-        var portfolioResult = await tools.GetEntityRelationshipsAsync("Portfolio", CancellationToken.None);
+        // When fetching relationships for Region (target only)
+        var regionResult = await tools.GetEntityRelationshipsAsync("Region", CancellationToken.None);
 
-        // Then Portfolio as source is found
-        Assert.Single(portfolioResult);
-        Assert.Equal("Portfolio",   portfolioResult[0].SourceEntity);
-        Assert.Equal("Instrument",  portfolioResult[0].TargetEntity);
-        Assert.Equal("contains",    portfolioResult[0].RelationshipType);
+        // Then Region as target is found
+        Assert.Single(regionResult);
+        Assert.Equal("Location",         regionResult[0].SourceEntity);
+        Assert.Equal("Region",           regionResult[0].TargetEntity);
+        Assert.Equal("locatedInRegion",  regionResult[0].RelationshipType);
     }
 
     [Fact]

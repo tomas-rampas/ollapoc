@@ -84,10 +84,10 @@ public class DataPipelineTests
         """{"valid":true,"hits":{"total":{"value":0,"relation":"eq"},"hits":[]}}""";
 
     /// <summary>
-    /// A valid Trade QuerySpec JSON as returned by the model.
+    /// A valid Counterparty QuerySpec JSON as returned by the model.
     /// </summary>
     private const string ValidTradeSpecJson =
-        """{"Entity":"Trade","Filters":[],"TimeRange":null,"Sort":[],"Aggregations":[],"Limit":10}""";
+        """{"Entity":"Counterparty","Filters":[],"TimeRange":null,"Sort":[],"Aggregations":[],"Limit":10}""";
 
     /// <summary>
     /// Builds a mock <see cref="IChatClient"/> that always returns the given text.
@@ -222,8 +222,8 @@ public class DataPipelineTests
               "hits":{
                 "total":{"value":2,"relation":"eq"},
                 "hits":[
-                  {"_index":"trades","_id":"1","_source":{"Status":"FAILED","Notional":100000}},
-                  {"_index":"trades","_id":"2","_source":{"Status":"FAILED","Notional":200000}}
+                  {"_index":"counterpartys","_id":"CP001","_source":{"status":"Active","country":"GB"}},
+                  {"_index":"counterpartys","_id":"CP002","_source":{"status":"Active","country":"GB"}}
                 ]
               }
             }
@@ -233,7 +233,7 @@ public class DataPipelineTests
         var pipeline = BuildPipeline(chatMock.Object, BuildInMemoryEs(hitsJson));
         var (response, body) = BuildResponse();
 
-        await pipeline.ExecuteAsync("show me failed trades", response, CancellationToken.None);
+        await pipeline.ExecuteAsync("show me active counterparties", response, CancellationToken.None);
 
         var output = ReadBody(body);
         Assert.Contains("event: query_spec", output);
@@ -270,7 +270,7 @@ public class DataPipelineTests
         const string aggSpecJson =
             """
             {
-              "Entity":"Trade",
+              "Entity":"Counterparty",
               "Filters":[],
               "TimeRange":null,
               "Sort":[],

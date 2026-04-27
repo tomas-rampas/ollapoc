@@ -1,0 +1,18 @@
+@page "/entity/{EntityType}/{EntityId}"
+@rendermode InteractiveServer
+
+<div style="max-width:800px;margin:2rem auto;padding:1rem;font-family:sans-serif;">
+    <h2>@EntityType</h2>
+    <p><strong>ID:</strong> @EntityId</p>
+    <hr />
+    <p>this is the detail in WebUI</p>
+    <br />
+    <a href="/entities">← Entity Catalog</a>
+    &nbsp;&nbsp;
+    <a href="/">← Back to Chat</a>
+</div>
+
+@code {
+    [Parameter] public string EntityType { get; set; } = "";
+    [Parameter] public string EntityId { get; set; } = "";
+}

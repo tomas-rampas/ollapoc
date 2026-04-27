@@ -287,6 +287,7 @@ builder.Services.AddHostedService<CatalogIndexBootstrapper>();
 
 // ── Catalog schema bootstrap (creates SQL Server schema on first run) ──────────
 builder.Services.AddHostedService<CatalogSchemaBootstrapper>();
+builder.Services.AddHostedService<OperationalDataSeeder>();
 
 // ── Blazor / Razor Components ─────────────────────────────────────────────────
 builder.Services.AddRazorComponents()

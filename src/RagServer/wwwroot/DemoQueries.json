@@ -11,10 +11,10 @@
   { "text": "What are the mandatory rules for Settlement Instruction?",          "pipeline": "Metadata" },
   { "text": "What critical data elements does Currency have?",                   "pipeline": "Metadata" },
   { "text": "What relationships does Counterparty have?",                        "pipeline": "Metadata" },
-  { "text": "Show me the top 10 trades with status FAILED sorted by amount descending", "pipeline": "Data" },
-  { "text": "How many trades were settled last month?",                          "pipeline": "Data" },
-  { "text": "List all counterparties with more than 5 active trades",            "pipeline": "Data" },
-  { "text": "What were the total notional amounts by currency last quarter?",    "pipeline": "Data" },
-  { "text": "Show me all settlement failures in the last 7 days",               "pipeline": "Data" },
-  { "text": "Find all open trades where notional exceeds 1 million",            "pipeline": "Data" }
+  { "text": "Give me all UK counterparties",                                     "pipeline": "Data" },
+  { "text": "Show me active locations in London",                               "pipeline": "Data" },
+  { "text": "What regions are in the UK?",                                      "pipeline": "Data" },
+  { "text": "Show me all settlements with status Pending",                      "pipeline": "Data" },
+  { "text": "List all SIC codes in financial services section K",               "pipeline": "Data" },
+  { "text": "Show me active client accounts with GBP currency",                 "pipeline": "Data" }
 ]
