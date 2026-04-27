@@ -247,7 +247,8 @@ builder.Services.AddSingleton<AdfNormaliser>();
 builder.Services.AddHttpClient<IConfluenceCrawler, ConfluenceCrawler>();
 builder.Services.AddHttpClient<IJiraCrawler, JiraCrawler>();
 builder.Services.AddSingleton<DocumentEmbedder>();
-builder.Services.AddHostedService<IngestionScheduler>();
+builder.Services.AddSingleton<IngestionScheduler>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<IngestionScheduler>());
 
 // ── Docs pipeline ─────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<DocsRetriever>();
