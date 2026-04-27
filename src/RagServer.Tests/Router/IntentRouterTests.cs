@@ -54,6 +54,8 @@ public class IntentRouterTests
     // ── Rule-based: Data ──────────────────────────────────────────────────────
     [Theory]
     [InlineData("Give me all open trades for counterparty 42")]
+    [InlineData("Give me some counterparties")]
+    [InlineData("Give me any active positions")]
     [InlineData("List all positions with notional above 1M")]
     [InlineData("Show me the records for desk FX in Q1")]
     [InlineData("Find all trades booked yesterday")]
