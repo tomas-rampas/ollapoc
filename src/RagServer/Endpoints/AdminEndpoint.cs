@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using RagServer.Infrastructure;
@@ -12,7 +13,7 @@ public static class AdminEndpoint
     {
         var reindexRoute = app.MapPost("/admin/reindex", (
             string? source,
-            IngestionScheduler scheduler) =>
+            [FromServices] IngestionScheduler scheduler) =>
         {
             if (source is null or not ("confluence" or "jira" or "all"))
                 return Results.BadRequest("source must be 'confluence', 'jira', or 'all'");
