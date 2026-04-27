@@ -288,8 +288,13 @@ public sealed class SqlDataPipeline(
         Available entities and fields:
         {{schemaContext}}
 
-        Example:
-        { "Entity": "Counterparty", "Filters": [{"Field": "status", "Operator": "Eq", "Value": "Active"}], "TimeRange": null, "Sort": [{"Field": "legal_name", "Direction": "Asc"}], "Aggregations": [], "Limit": 10 }
+        Examples:
+        Filter by field value: { "Entity": "Counterparty", "Filters": [{"Field": "status", "Operator": "Eq", "Value": "Active"}], "TimeRange": null, "Sort": [{"Field": "legal_name", "Direction": "Asc"}], "Aggregations": [], "Limit": 10 }
+        Filter by country code: { "Entity": "Counterparty", "Filters": [{"Field": "incorporation_country", "Operator": "Eq", "Value": "GB"}], "TimeRange": null, "Sort": [], "Aggregations": [], "Limit": null }
+        Lookup by name: { "Entity": "Counterparty", "Filters": [{"Field": "legal_name", "Operator": "Contains", "Value": "Barclays"}], "TimeRange": null, "Sort": [], "Aggregations": [], "Limit": 5 }
+        Count all: { "Entity": "Counterparty", "Filters": [], "TimeRange": null, "Sort": [], "Aggregations": [{"Type": "Count", "Field": "*", "Name": "total"}], "Limit": null }
+
+        Country codes are ISO alpha-2 (e.g. GB = United Kingdom, US = United States, DE = Germany, FR = France, JP = Japan).
         """;
 
     private static readonly System.Text.RegularExpressions.Regex ThinkPattern =

@@ -60,6 +60,13 @@ public class IntentRouterTests
     [InlineData("Show me the records for desk FX in Q1")]
     [InlineData("Find all trades booked yesterday")]
     [InlineData("Count of contracts by status")]
+    // Conditional / filtered phrasing (previously routed to Docs)
+    [InlineData("Can you give UK counterparties?")]
+    [InlineData("I meant those counterparties which incorporation_country equals to GB")]
+    [InlineData("Can you provide detail of Barclays Plc?")]
+    [InlineData("Active books")]
+    [InlineData("UK settlements")]
+    [InlineData("Tell me about the counterparties from France")]
     public async Task RuleBased_Data_Queries(string query)
     {
         var router = BuildRouter();
